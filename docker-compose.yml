@@ -1,0 +1,30 @@
+# Civitas Orbita - orchestration Docker
+#
+#   Production (Nginx) :   docker compose up --build web      -> http://localhost:8080
+#   Developpement (HMR) :  docker compose --profile dev up dev -> http://localhost:5173
+
+services:
+  web:
+    build:
+      context: .
+      target: prod
+    image: civitas-orbita:latest
+    container_name: civitas-orbita-web
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  dev:
+    build:
+      context: .
+      target: dev
+    image: civitas-orbita:dev
+    container_name: civitas-orbita-dev
+    ports:
+      - "5173:5173"
+    # Montage du code pour le hot-reload, en preservant node_modules du conteneur.
+    volumes:
+      - .:/app
+      - /app/node_modules
+    profiles:
+      - dev

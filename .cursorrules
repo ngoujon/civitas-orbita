@@ -1,0 +1,137 @@
+# Civitas Orbita — Règles du projet (.cursorrules)
+
+> Jeu de gestion de colonie évolutif à travers les âges.
+> Ville en anneaux concentriques autour d'un feu de camp central.
+> Rendu 100% procédural, style pixel art Pokémon Rouge Feu / Vert Feuille.
+
+---
+
+## 1. Stack technique (NE PAS CHANGER sans raison forte)
+
+- **Langage** : TypeScript (mode strict).
+- **Rendu** : PixiJS v8 (WebGL/WebGPU). Dessin procédural via `Graphics` et `RenderTexture`.
+- **Build / Dev** : Vite.
+- **Tests** : Vitest.
+- **Aucune dépendance d'asset** : zéro image, texture, sprite, son externe. TOUT est généré par le code.
+
+### Contrainte d'assets absolue
+- Interdit : `import` d'images, fichiers `.png/.jpg/.svg`, polices externes, CDN d'assets.
+- Autorisé : `PIXI.Graphics`, `RenderTexture` générées à l'exécution, `Canvas2D` procédural, formes géométriques.
+- Les sprites de bâtiments sont dessinés dans `rendering/ProceduralSprites.ts` puis mis en cache en `RenderTexture`.
+
+---
+
+## 2. Architecture du projet
+
+Séparation STRICTE en couches. Une couche basse ne connaît jamais une couche haute.
+
+```
+src/
+├── config/        # Données pures, paramétrables (PAS de logique). Source de vérité du game design.
+│   ├── game.ts        # Constantes globales (tick rate, vitesses, tailles)
+│   ├── rings.ts       # Paramétrage des anneaux concentriques
+│   ├── resources.ts   # Définition des ressources
+│   ├── buildings.ts   # Définition des bâtiments (coûts, production, âge requis)
+│   └── ages.ts        # Définition des âges et déblocages
+│
+├── core/          # Infrastructure moteur, agnostique du gameplay.
+│   ├── EventBus.ts    # Bus d'événements typé (pub/sub)
+│   ├── GameLoop.ts    # Boucle à pas fixe + interpolation rendu
+│   ├── TimeManager.ts # Vitesse du jeu, pause, accumulateur de temps
+│   └── SaveSystem.ts  # Sérialisation/désérialisation JSON + versionnement
+│
+├── world/         # Géométrie du monde.
+│   ├── Ring.ts        # Un anneau (N secteurs)
+│   ├── Sector.ts      # Un secteur constructible
+│   ├── WorldMap.ts    # Ensemble des anneaux/secteurs + lookups
+│   └── Placement.ts   # Validation et logique de placement
+│
+├── economy/       # Ressources & production.
+│   ├── ResourceManager.ts  # Stocks, capacités, ajout/retrait
+│   └── ProductionSystem.ts # Production/consommation par tick
+│
+├── population/    # Habitants.
+│   └── PopulationSystem.ts # Croissance, emplois, besoins, bonheur
+│
+├── research/      # Progression.
+│   └── AgeSystem.ts        # Âge courant, conditions, déblocages
+│
+├── buildings/     # Bâtiments.
+│   ├── BuildingRegistry.ts   # Accès aux définitions (depuis config)
+│   ├── BuildingInstance.ts   # Instance posée sur la carte
+│   └── ConstructionSystem.ts # Construction, coût, annulation, upgrades
+│
+├── rendering/     # Présentation (lit l'état, ne le mute JAMAIS).
+│   ├── Camera.ts            # Zoom, pan, recentrage, fluidité
+│   ├── ProceduralSprites.ts # Génération des textures de bâtiments/terrain
+│   └── WorldRenderer.ts     # Rend l'état du jeu via PixiJS
+│
+├── game/          # Orchestration.
+│   ├── GameState.ts   # ÉTAT pur, sérialisable (la seule source de vérité runtime)
+│   └── Game.ts        # Assemble systèmes + rendu + boucle
+│
+├── ui/            # Interface (DOM/HTML overlay).
+│   ├── HUD.ts
+│   └── styles.css
+│
+└── main.ts        # Point d'entrée.
+```
+
+### Règle d'or : Simulation ⟂ Rendu
+- `GameState` est une **structure de données pure et sérialisable** (pas de classes Pixi, pas de fonctions, pas de références circulaires non sérialisables).
+- Les **systèmes** (`*System.ts`) lisent/mutent `GameState` à pas de temps **fixe et déterministe**.
+- Le **rendu** observe `GameState` et dessine à 60 FPS. Il ne mute JAMAIS l'état de simulation.
+- Conséquence : la sauvegarde est triviale (`JSON.stringify(state)`), la logique est testable sans navigateur.
+
+---
+
+## 3. Conventions de code
+
+- **Nommage** : `PascalCase` pour types/classes/fichiers de classe, `camelCase` pour variables/fonctions, `SCREAMING_SNAKE_CASE` pour constantes globales, `kebab` jamais.
+- **IDs** : les définitions de config utilisent des `id` string stables (`'wood'`, `'lumberjack'`, `'stone_age'`). Jamais d'index magiques.
+- **Types** : préférer `type`/`interface` explicites. `enum` évités au profit d'unions de string littérales (`type ResourceId = 'wood' | 'stone' | ...`) — meilleures pour la sérialisation.
+- **Imports** : chaque dossier expose un `index.ts` (barrel) quand utile. Pas d'import cross-couche illégal (ex: `config` n'importe jamais `rendering`).
+- **Pas d'effets de bord à l'import** : les modules n'exécutent rien au chargement (sauf `main.ts`).
+- **Commentaires** : expliquent le POURQUOI (intention, contrainte), jamais le QUOI évident.
+- **Pas de `any`** sauf justifié et localisé.
+- **Données ≠ logique** : `config/` ne contient QUE des données. Ajouter un bâtiment = éditer `config/buildings.ts`, rien d'autre.
+
+---
+
+## 4. Règles de modularité / extensibilité
+
+- **Tout est piloté par la donnée (data-driven)** : âges, ressources, bâtiments sont des entrées de config. Le code itère sur la config, ne hardcode jamais un bâtiment précis.
+- **Ajouter un contenu** (ressource/bâtiment/âge) ne doit JAMAIS exiger de toucher au moteur, seulement `config/`.
+- **EventBus** pour la communication inter-systèmes faiblement couplée (ex: `building:constructed`, `age:unlocked`). Pas d'appels directs entre systèmes éloignés.
+- **Anneaux paramétrables** : la formule du nombre de secteurs par anneau vit dans `config/rings.ts` et doit supporter des centaines d'anneaux.
+- Chaque système expose une API minimale : `update(state, dt)` et des helpers purs.
+
+---
+
+## 5. Règles de performance (viser 1000+ bâtiments, 5000+ habitants, 60 FPS)
+
+- **Pas fixe pour la simulation** (`TimeManager` accumulateur), interpolation pour le rendu. Découple logique et framerate.
+- **Textures procédurales générées UNE fois** puis réutilisées (cache de `RenderTexture` par type+âge). Jamais de redessin `Graphics` par frame pour un bâtiment statique.
+- **Batching Pixi** : utiliser des `Sprite` partageant des textures → draw calls minimaux. Conteneurs séparés par couche (terrain, bâtiments, habitants, UI).
+- **Culling** : ne rendre que ce qui est visible par la caméra (viewport bounds).
+- **Habitants en masse** : représenter la population en données agrégées + sprites instanciés/poolés, pas un GameObject lourd par habitant. Object pooling obligatoire.
+- **Zéro allocation dans la boucle chaude** : réutiliser objets/vecteurs, éviter `map/filter` créant des tableaux par frame dans les hot paths.
+- **Mémoire** : structures plates (records indexés par id), éviter les graphes profonds.
+- **Mesurer** : prévoir un compteur FPS et des bornes de perf avant d'optimiser à l'aveugle.
+
+---
+
+## 6. Sauvegarde
+
+- Format **JSON** versionné (`SAVE_VERSION`). `GameState` sérialisé tel quel.
+- `SaveSystem` gère `save()`, `load()`, et les **migrations** entre versions (fonction par palier de version).
+- Une sauvegarde plus ancienne doit toujours pouvoir être migrée → jamais de breaking change silencieux du schéma.
+
+---
+
+## 7. Workflow de dev
+
+- `npm run dev` : serveur Vite (HMR).
+- `npm run build` : build de production (typecheck inclus).
+- `npm run test` : Vitest.
+- Avant de committer une feature : `npm run build` doit passer (typecheck OK) et les tests verts.
