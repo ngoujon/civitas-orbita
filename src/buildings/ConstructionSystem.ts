@@ -15,6 +15,7 @@ import { createBuildingInstance } from './BuildingInstance';
 import { isUnlocked } from './BuildingRegistry';
 import { canBuildAt } from '@/world/Placement';
 import type { WorldMap } from '@/world/WorldMap';
+import { blockedSeaAccessKeys, isShoreSector, isSpokeClearForPort, resolvePortPlacementSector, spokeKeys } from '@/world/SeaAccess';
 import { sectorKey } from '@/world/Sector';
 import type { SectorCoord } from '@/world/Sector';
 
@@ -22,13 +23,46 @@ export type PlaceFailure =
   | 'locked'
   | 'not_buildable'
   | 'placement_invalid'
-  | 'cannot_afford';
+  | 'cannot_afford'
+  | 'not_prepared'
+  | 'terrain_preparing'
+  | 'sea_access_reserved'
+  | 'not_shore'
+  | 'spoke_occupied';
 
 export type PlaceResult =
   | { ok: true; id: string }
   | { ok: false; reason: PlaceFailure };
 
+export type MoveFailure =
+  | 'not_found'
+  | 'immovable'
+  | 'same_sector'
+  | 'not_shore'
+  | 'spoke_occupied'
+  | 'placement_invalid'
+  | 'not_prepared'
+  | 'terrain_preparing'
+  | 'sea_access_reserved';
+
+export type MoveResult =
+  | { ok: true; from: SectorCoord; to: SectorCoord }
+  | { ok: false; reason: MoveFailure };
+
 export class ConstructionSystem {
+  /** Secteur effectif pour la validation (ex. port → lisiere sur la meme colonne). */
+  private placementCoord(
+    state: GameState,
+    map: WorldMap,
+    occupied: ReadonlySet<string>,
+    buildingId: BuildingId,
+    coord: SectorCoord,
+  ): SectorCoord {
+    const def = BUILDINGS[buildingId];
+    if (!def.shoreRequired) return coord;
+    return resolvePortPlacementSector(map, coord, occupied, state.preparedSectors);
+  }
+
   /** Verifie sans muter si l'on peut construire ici. */
   canPlace(
     state: GameState,
@@ -37,10 +71,28 @@ export class ConstructionSystem {
     buildingId: BuildingId,
     coord: SectorCoord,
   ): PlaceResult {
+    coord = this.placementCoord(state, map, occupied, buildingId, coord);
     const def = BUILDINGS[buildingId];
     if (!def.buildable) return { ok: false, reason: 'not_buildable' };
-    if (!isUnlocked(buildingId, state.age)) return { ok: false, reason: 'locked' };
-    if (!canBuildAt(map, occupied, coord).ok) return { ok: false, reason: 'placement_invalid' };
+    if (!isUnlocked(buildingId, state)) return { ok: false, reason: 'locked' };
+
+    if (def.shoreRequired && !isShoreSector(map, coord)) {
+      return { ok: false, reason: 'not_shore' };
+    }
+    if (def.reservesSeaAccess && !isSpokeClearForPort(map, occupied, coord)) {
+      return { ok: false, reason: 'spoke_occupied' };
+    }
+
+    const key = sectorKey(coord);
+    if (state.prepJobs[key]) return { ok: false, reason: 'terrain_preparing' };
+    if (!state.preparedSectors[key]) return { ok: false, reason: 'not_prepared' };
+
+    const seaBlocked = blockedSeaAccessKeys(map, state.buildings);
+    const placement = canBuildAt(map, occupied, state.preparedSectors, coord, seaBlocked);
+    if (!placement.ok) {
+      if (placement.reason === 'sea_access_reserved') return { ok: false, reason: 'sea_access_reserved' };
+      return { ok: false, reason: 'placement_invalid' };
+    }
     if (!canAfford(state, this.effectiveCost(state, buildingId))) {
       return { ok: false, reason: 'cannot_afford' };
     }
@@ -61,6 +113,7 @@ export class ConstructionSystem {
     buildingId: BuildingId,
     coord: SectorCoord,
   ): PlaceResult {
+    coord = this.placementCoord(state, map, occupied, buildingId, coord);
     const check = this.canPlace(state, map, occupied, buildingId, coord);
     if (!check.ok) return check;
 
@@ -72,6 +125,79 @@ export class ConstructionSystem {
     const instance = createBuildingInstance(id, buildingId, coord, instant);
     state.buildings[id] = instance;
     return { ok: true, id };
+  }
+
+  /** Verifie si un batiment existant peut etre deplace vers ce secteur. */
+  canMove(
+    state: GameState,
+    map: WorldMap,
+    occupied: ReadonlySet<string>,
+    instanceId: string,
+    toCoord: SectorCoord,
+  ): MoveResult {
+    const instance = state.buildings[instanceId];
+    if (!instance) return { ok: false, reason: 'not_found' };
+    toCoord = this.placementCoord(state, map, occupied, instance.def, toCoord);
+
+    if (instance.def === 'campfire') return { ok: false, reason: 'immovable' };
+
+    const fromCoord = instance.sector;
+    if (sectorKey(fromCoord) === sectorKey(toCoord)) {
+      return { ok: false, reason: 'same_sector' };
+    }
+
+    const def = BUILDINGS[instance.def];
+    const occ = new Set(occupied);
+    occ.delete(sectorKey(fromCoord));
+
+    if (def.shoreRequired && !isShoreSector(map, toCoord)) {
+      return { ok: false, reason: 'not_shore' };
+    }
+    if (def.reservesSeaAccess && !isSpokeClearForPort(map, occ, toCoord)) {
+      return { ok: false, reason: 'spoke_occupied' };
+    }
+
+    const toKey = sectorKey(toCoord);
+    if (state.prepJobs[toKey]) return { ok: false, reason: 'terrain_preparing' };
+    if (!state.preparedSectors[toKey]) return { ok: false, reason: 'not_prepared' };
+
+    const seaBlocked = blockedSeaAccessKeys(map, state.buildings);
+    if (def.reservesSeaAccess) {
+      for (const key of spokeKeys(map, fromCoord)) seaBlocked.delete(key);
+    }
+
+    const placement = canBuildAt(map, occ, state.preparedSectors, toCoord, seaBlocked);
+    if (!placement.ok) {
+      if (placement.reason === 'sea_access_reserved') {
+        return { ok: false, reason: 'sea_access_reserved' };
+      }
+      return { ok: false, reason: 'placement_invalid' };
+    }
+
+    return { ok: true, from: fromCoord, to: toCoord };
+  }
+
+  /** Secteur cible effectif pour un batiment (port → lisiere). */
+  effectivePlacementSector(buildingId: BuildingId, coord: SectorCoord, state: GameState, map: WorldMap, occupied: ReadonlySet<string>): SectorCoord {
+    return this.placementCoord(state, map, occupied, buildingId, coord);
+  }
+
+  /** Deplace un batiment vers un secteur valide (sans cout). */
+  move(
+    state: GameState,
+    map: WorldMap,
+    occupied: ReadonlySet<string>,
+    instanceId: string,
+    toCoord: SectorCoord,
+  ): MoveResult {
+    const instance = state.buildings[instanceId];
+    if (!instance) return { ok: false, reason: 'not_found' };
+    toCoord = this.placementCoord(state, map, occupied, instance.def, toCoord);
+    const check = this.canMove(state, map, occupied, instanceId, toCoord);
+    if (!check.ok) return check;
+
+    state.buildings[instanceId]!.sector = toCoord;
+    return check;
   }
 
   /** Annule/demolit un batiment. Rembourse integralement si encore en chantier. */

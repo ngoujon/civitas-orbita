@@ -1,9 +1,30 @@
 # Civitas Orbita - orchestration Docker
 #
-#   Production (Nginx) :   docker compose up --build web      -> http://localhost:8080
-#   Developpement (HMR) :  docker compose --profile dev up dev -> http://localhost:5173
+#   Production :  docker compose up --build        -> http://localhost:8080
+#   Dev (HMR) :   docker compose --profile dev up dev -> http://localhost:5173
+#   API seule :   npm run dev:server               -> http://localhost:3001
 
 services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: civitas-orbita-api:latest
+    container_name: civitas-orbita-api
+    environment:
+      PORT: 3001
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      DATABASE_PATH: /data/civitas.db
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+    volumes:
+      - civitas-data:/data
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/api/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   web:
     build:
       context: .
@@ -12,6 +33,8 @@ services:
     container_name: civitas-orbita-web
     ports:
       - "8080:80"
+    depends_on:
+      - api
     restart: unless-stopped
 
   dev:
@@ -22,9 +45,11 @@ services:
     container_name: civitas-orbita-dev
     ports:
       - "5173:5173"
-    # Montage du code pour le hot-reload, en preservant node_modules du conteneur.
     volumes:
       - .:/app
       - /app/node_modules
     profiles:
       - dev
+
+volumes:
+  civitas-data:

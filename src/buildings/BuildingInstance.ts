@@ -11,10 +11,12 @@ import type { SectorCoord } from '@/world/Sector';
 export interface BuildingInstance {
   /** Identifiant d'instance unique. */
   readonly id: string;
+  /** Proprietaire (multijoueur) ; absent en solo. */
+  ownerId?: string;
   /** Type de batiment (cle vers la config). */
   readonly def: BuildingId;
-  /** Secteur occupe. */
-  readonly sector: SectorCoord;
+  /** Secteur occupe (mutable lors d'un deplacement). */
+  sector: SectorCoord;
   /** Niveau d'amelioration (1 = base). */
   level: number;
   /** Travailleurs actuellement affectes. */

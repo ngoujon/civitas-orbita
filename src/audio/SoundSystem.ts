@@ -23,7 +23,8 @@ export type SfxName =
   | 'info';
 
 const MUTE_KEY = 'civitas-orbita:muted';
-const MASTER_VOLUME = 0.35;
+const VOLUME_KEY = 'civitas-orbita:volume';
+const DEFAULT_VOLUME = 0.35;
 
 type OscType = OscillatorType;
 
@@ -31,19 +32,34 @@ export class SoundSystem {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private muted: boolean;
+  private volume: number;
 
   constructor() {
     this.muted = localStorage.getItem(MUTE_KEY) === '1';
+    const stored = localStorage.getItem(VOLUME_KEY);
+    this.volume = stored !== null ? Math.max(0, Math.min(1, Number(stored))) : DEFAULT_VOLUME;
   }
 
   get isMuted(): boolean {
     return this.muted;
   }
 
+  get masterVolume(): number {
+    return this.volume;
+  }
+
+  setMasterVolume(v: number): void {
+    this.volume = Math.max(0, Math.min(1, v));
+    localStorage.setItem(VOLUME_KEY, String(this.volume));
+    if (this.master && !this.muted) this.master.gain.value = this.volume;
+    if (this.ambientGain && !this.muted) this.ambientGain.gain.value = this.volume * 0.08;
+  }
+
   setMuted(muted: boolean): void {
     this.muted = muted;
     localStorage.setItem(MUTE_KEY, muted ? '1' : '0');
-    if (this.master) this.master.gain.value = muted ? 0 : MASTER_VOLUME;
+    if (this.master) this.master.gain.value = muted ? 0 : this.volume;
+    if (this.ambientGain) this.ambientGain.gain.value = muted ? 0 : this.volume * 0.08;
   }
 
   toggleMute(): boolean {
@@ -60,7 +76,7 @@ export class SoundSystem {
       if (!Ctor) return null;
       this.ctx = new Ctor();
       this.master = this.ctx.createGain();
-      this.master.gain.value = MASTER_VOLUME;
+      this.master.gain.value = this.volume;
       this.master.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
@@ -118,6 +134,41 @@ export class SoundSystem {
     bus.on('notify', ({ kind }) => {
       if (kind === 'warn') this.play('error');
     });
+    bus.on('age:advanced', () => this.updateAmbient());
+  }
+
+  private ambientOsc: OscillatorNode | null = null;
+  private ambientGain: GainNode | null = null;
+
+  /** Boucle procedurale d ambiance (drone leger par age). */
+  startAmbient(baseFreq = 110): void {
+    this.stopAmbient();
+    const a = this.ensure();
+    if (!a) return;
+    const { ctx, master } = a;
+    this.ambientGain = ctx.createGain();
+    this.ambientGain.gain.value = this.muted ? 0 : this.volume * 0.08;
+    this.ambientOsc = ctx.createOscillator();
+    this.ambientOsc.type = 'sine';
+    this.ambientOsc.frequency.value = baseFreq;
+    this.ambientOsc.connect(this.ambientGain);
+    this.ambientGain.connect(master);
+    this.ambientOsc.start();
+  }
+
+  stopAmbient(): void {
+    try {
+      this.ambientOsc?.stop();
+    } catch {
+      // deja arrete.
+    }
+    this.ambientOsc = null;
+    this.ambientGain = null;
+  }
+
+  updateAmbient(ageIndex = 0): void {
+    const freqs = [110, 130, 146, 165, 196, 220, 247, 262, 294];
+    this.startAmbient(freqs[ageIndex] ?? 110);
   }
 
   /** Joue un "click" sur les boutons d'interface (delegation globale). */
@@ -126,7 +177,7 @@ export class SoundSystem {
       'pointerdown',
       (e) => {
         const el = e.target as HTMLElement | null;
-        if (el?.closest('.hud-btn:not(.hud-ability-btn), .hud-speed-btn, .start-btn, .start-card')) {
+        if (el?.closest('.hud-btn:not(.hud-ability-btn), .start-btn, .start-card')) {
           this.play('click');
         }
       },

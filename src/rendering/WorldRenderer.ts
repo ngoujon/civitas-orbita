@@ -4,9 +4,12 @@
  * OBSERVATEUR de GameState : il lit l'etat, ne le mute JAMAIS.
  *
  * Couches (Containers) pour minimiser les draw calls :
- *  - terrainLayer : anneaux/secteurs (Graphics statique, redessine si la carte change)
+ *  - seaLayer     : mer procedurale animee (tuiles + vagues au rivage)
+ *  - terrainLayer     : anneaux/secteurs (Graphics statique, redessine si la carte change)
+ *  - terrainPrepLayer : etat sauvage / preparation / sol pret
+ *  - pathsLayer       : chemins de terre entre batiments voisins
  *  - overlayLayer : surbrillance du secteur survole (apercu de construction)
- *  - entityLayer  : batiments ET decor (props), tries en profondeur par y
+ *  - entityLayer  : batiments, decor (props) et villageois, tries en profondeur par y
  *  - fxLayer      : effets animes (flammes, lueur, fumee), redessine chaque frame
  *
  * Optimisations : textures procedurales cachees, culling par viewport,
@@ -15,14 +18,28 @@
  */
 
 import { Application, Container, Graphics, Sprite } from 'pixi.js';
-import { PALETTE } from '@/config/game';
+import { BUILDING_DISPLAY, PALETTE } from '@/config/game';
+import type { BuildingId } from '@/config/buildings';
+import { BUILDINGS } from '@/config/buildings';
+import { TERRAIN_PREP } from '@/config/terrain';
 import type { GameState } from '@/game/GameState';
 import type { WorldMap } from '@/world/WorldMap';
+import { terrainKindAt } from '@/world/Terrain';
 import type { SectorCoord } from '@/world/Sector';
-import { sectorKey } from '@/world/Sector';
+import { sectorKey, buildingDisplayPosition } from '@/world/Sector';
+import { blockedSeaAccessKeys } from '@/world/SeaAccess';
 import { Camera } from './Camera';
 import { BASE_ANCHOR, ProceduralSprites } from './ProceduralSprites';
 import type { PropName } from './ProceduralSprites';
+import { drawBuildingPaths, pathsSignature } from './PathRenderer';
+import { drawSynergyPaths } from './SynergyPathRenderer';
+import { SeaRenderer } from './SeaRenderer';
+import { SeaFogRenderer } from './SeaFogRenderer';
+import { VillagerRenderer } from './VillagerRenderer';
+import { FishingBoatRenderer } from './FishingBoatRenderer';
+import { ScoutBoatRenderer } from './ScoutBoatRenderer';
+import { NpcIslandRenderer } from './NpcIslandRenderer';
+import { drawBeachGround, drawPreparedSectorGround, drawRichSectorGround } from './TerrainGroundRenderer';
 
 interface HighlightState {
   coord: SectorCoord | null;
@@ -38,11 +55,19 @@ export class WorldRenderer {
 
   private readonly world = new Container();
   private readonly terrainLayer = new Graphics();
+  private readonly terrainPrepLayer = new Graphics();
+  private readonly pathsLayer = new Graphics();
   private readonly overlayLayer = new Graphics();
   private readonly entityLayer = new Container();
   private readonly fxLayer = new Graphics();
 
   private readonly sprites: ProceduralSprites;
+  private readonly sea: SeaRenderer;
+  private readonly seaFog: SeaFogRenderer;
+  private readonly npcIslands: NpcIslandRenderer;
+  private readonly fishingBoats: FishingBoatRenderer;
+  private readonly scoutBoats: ScoutBoatRenderer;
+  private readonly villagers: VillagerRenderer;
   private readonly buildingSprites = new Map<string, Sprite>();
   private readonly spawnTime = new Map<string, number>();
   private propSprites: Sprite[] = [];
@@ -50,18 +75,34 @@ export class WorldRenderer {
   private highlight: HighlightState = { coord: null, valid: true };
   private lastTerrainRings = -1;
   private lastPropSig = '';
+  private lastPathSig = '';
   private elapsed = 0;
+  private readonly buildingIconCache = new Map<string, string>();
 
   constructor(app: Application) {
     this.app = app;
     this.sprites = new ProceduralSprites(app.renderer);
 
     this.entityLayer.sortableChildren = true;
-    this.world.addChild(this.terrainLayer, this.overlayLayer, this.entityLayer, this.fxLayer);
     app.stage.addChild(this.world);
+
+    this.sea = new SeaRenderer(this.world, app.renderer);
+    this.seaFog = new SeaFogRenderer(this.world, app.renderer, 3);
+    this.npcIslands = new NpcIslandRenderer(this.world);
+    this.fishingBoats = new FishingBoatRenderer(this.sprites, this.entityLayer);
+    this.scoutBoats = new ScoutBoatRenderer(this.sprites, this.entityLayer);
+    this.world.addChild(
+      this.terrainLayer,
+      this.terrainPrepLayer,
+      this.pathsLayer,
+      this.overlayLayer,
+      this.entityLayer,
+      this.fxLayer,
+    );
 
     this.camera = new Camera(this.world);
     this.camera.resize(app.screen.width, app.screen.height);
+    this.villagers = new VillagerRenderer(this.sprites, this.entityLayer);
   }
 
   resize(width: number, height: number): void {
@@ -72,23 +113,41 @@ export class WorldRenderer {
     this.highlight = { coord, valid };
   }
 
+  setSelectedNpcIsland(id: string | null): void {
+    this.npcIslands.setSelected(id);
+  }
+
   /** Boucle de rendu. dt en secondes (temps reel) pour le lissage / animations. */
   render(state: GameState, map: WorldMap, dt: number): void {
     this.elapsed += dt;
     this.camera.update(dt);
+    this.sea.update(this.elapsed, map.outerRadius);
+    this.seaFog.update(state, map.outerRadius, this.camera, dt);
 
     if (this.lastTerrainRings !== map.ringCount) {
       this.drawTerrain(map);
       this.lastTerrainRings = map.ringCount;
     }
 
-    const sig = `${map.ringCount}:${Object.keys(state.buildings).length}`;
-    if (this.lastPropSig !== sig) {
+    const propSig = terrainPropSignature(state, map);
+    if (this.lastPropSig !== propSig) {
       this.rebuildProps(state, map);
-      this.lastPropSig = sig;
+      this.lastPropSig = propSig;
+    }
+
+    this.drawTerrainPrep(state, map);
+
+    const pathSig = pathsSignature(state);
+    if (this.lastPathSig !== pathSig) {
+      drawBuildingPaths(this.pathsLayer, state, map);
+      this.lastPathSig = pathSig;
     }
 
     this.syncBuildings(state, map);
+    this.npcIslands.update(state, dt);
+    this.fishingBoats.update(state, dt);
+    this.scoutBoats.update(state, dt);
+    this.villagers.update(state, map, this.elapsed);
     this.cullEntities();
     this.drawOverlay(map);
     this.drawFx(state, map);
@@ -100,26 +159,37 @@ export class WorldRenderer {
     const g = this.terrainLayer;
     g.clear();
 
-    // Plage / sable a la lisiere exterieure (sur le fond eau).
-    const outer = map.outerRadius;
-    g.circle(0, 0, outer + 22).fill(0xe8d39a);
-    g.circle(0, 0, outer + 8).fill(PALETTE.grassDark);
+    drawBeachGround(g, map.outerRadius);
 
-    // Secteurs herbeux (damier subtil).
     for (let r = 1; r <= map.ringCount; r++) {
       const ring = map.getRing(r);
       if (!ring) continue;
       for (let i = 0; i < ring.sectorCount; i++) {
-        const shadeColor = (r + i) % 2 === 0 ? PALETTE.grass : PALETTE.grassDark;
-        this.drawWedge(g, ring.innerRadius, ring.outerRadius, ring.startAngle(i), ring.endAngle(i), shadeColor, 0.18);
+        drawRichSectorGround(
+          g,
+          ring.innerRadius,
+          ring.outerRadius,
+          ring.startAngle(i),
+          ring.endAngle(i),
+          r,
+          i,
+        );
       }
     }
 
-    // Clairiere centrale en terre, avec un anneau de pierres autour du foyer.
     const center = map.getRing(0);
     if (center) {
       g.circle(0, 0, center.outerRadius).fill(PALETTE.dirt).stroke({ width: 3, color: PALETTE.dirtDark });
       g.circle(0, 0, center.outerRadius * 0.62).fill(0xb87a40);
+      const rng = mulberry32(hashString('camp:dirt'));
+      for (let i = 0; i < 24; i++) {
+        const a = rng() * Math.PI * 2;
+        const rr = center.outerRadius * (0.25 + rng() * 0.55);
+        g.circle(Math.cos(a) * rr, Math.sin(a) * rr, 1.5 + rng() * 2.5).fill({
+          color: rng() > 0.5 ? 0x8a5224 : 0xc99250,
+          alpha: 0.4,
+        });
+      }
       const stones = 10;
       for (let i = 0; i < stones; i++) {
         const a = (i / stones) * Math.PI * 2;
@@ -147,6 +217,131 @@ export class WorldRenderer {
     g.fill(color).stroke({ width: 1.5, color: PALETTE.sectorGrid, alpha: gridAlpha });
   }
 
+  /** Affiche l'etat du terrain : sauvage, en preparation, ou sol plat. */
+  private drawTerrainPrep(state: GameState, map: WorldMap): void {
+    const g = this.terrainPrepLayer;
+    g.clear();
+
+    const occupied = new Set<string>();
+    for (const b of Object.values(state.buildings)) occupied.add(sectorKey(b.sector));
+    const seaAccess = blockedSeaAccessKeys(map, state.buildings);
+
+    for (const coord of map.sectors()) {
+      if (coord.ring === 0) continue;
+      const key = sectorKey(coord);
+      if (occupied.has(key)) continue;
+
+      const ring = map.getRing(coord.ring);
+      if (!ring) continue;
+      const start = ring.startAngle(coord.index);
+      const end = ring.endAngle(coord.index);
+
+      if (seaAccess.has(key)) {
+        this.drawWedge(g, ring.innerRadius, ring.outerRadius, start, end, 0xc9b87a, 0.12);
+        if (coord.ring === map.ringCount) {
+          g.moveTo(Math.cos(start) * ring.innerRadius, Math.sin(start) * ring.innerRadius);
+          g.lineTo(Math.cos(start) * ring.outerRadius, Math.sin(start) * ring.outerRadius);
+          g.lineTo(Math.cos(end) * ring.outerRadius, Math.sin(end) * ring.outerRadius);
+          g.lineTo(Math.cos(end) * ring.innerRadius, Math.sin(end) * ring.innerRadius);
+          g.closePath();
+          g.stroke({ width: 2, color: PALETTE.water, alpha: 0.45 });
+        }
+        continue;
+      }
+
+      if (state.preparedSectors[key]) {
+        drawPreparedSectorGround(
+          g,
+          ring.innerRadius,
+          ring.outerRadius,
+          start,
+          end,
+          coord.ring,
+          coord.index,
+        );
+        continue;
+      }
+
+      const job = state.prepJobs[key];
+      if (job) {
+        const def = TERRAIN_PREP[job.kind];
+        const pct = Math.min(1, job.progress / def.time);
+        this.drawWedge(g, ring.innerRadius, ring.outerRadius, start, end, 0x8a7a50, 0.35);
+        this.drawPrepProgress(g, ring.innerRadius, ring.outerRadius, start, end, pct);
+        this.drawTerrainIcon(g, ring, coord, job.kind, 0.5);
+        continue;
+      }
+
+      const kind = terrainKindAt(coord);
+      const wildBase = kind === 'rocky' ? 0x6a7a88 : 0x3d6a28;
+      this.drawWedge(g, ring.innerRadius, ring.outerRadius, start, end, wildBase, 0.42);
+      if (kind === 'overgrown') {
+        this.drawWildSectorTexture(g, ring, coord, start, end);
+      }
+      this.drawTerrainIcon(g, ring, coord, kind, 1);
+    }
+  }
+
+  /** Broussailles sur secteurs sauvages (par-dessus l'herbe de base). */
+  private drawWildSectorTexture(
+    g: Graphics,
+    ring: NonNullable<ReturnType<WorldMap['getRing']>>,
+    coord: SectorCoord,
+    start: number,
+    end: number,
+  ): void {
+    const seed = hashString(`wild:${sectorKey(coord)}`);
+    const rng = mulberry32(seed);
+    const inner = ring.innerRadius;
+    const outer = ring.outerRadius;
+    const clumps = 4 + (seed % 5);
+    for (let i = 0; i < clumps; i++) {
+      const a = start + (end - start) * (0.1 + rng() * 0.8);
+      const r = lerp(inner + 12, outer - 12, rng());
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      const w = 8 + rng() * 10;
+      g.ellipse(x, y, w, w * 0.55).fill({ color: 0x2d5018, alpha: 0.35 });
+      g.ellipse(x, y - 4, w * 0.6, w * 0.35).fill({ color: 0x3a6820, alpha: 0.4 });
+    }
+  }
+
+  private drawPrepProgress(
+    g: Graphics,
+    inner: number,
+    outer: number,
+    start: number,
+    end: number,
+    pct: number,
+  ): void {
+    if (pct <= 0) return;
+    const mid = (start + end) * 0.5;
+    const span = (end - start) * pct;
+    const s = mid - span * 0.5;
+    const e = mid + span * 0.5;
+    this.drawWedge(g, inner, outer, s, e, PALETTE.grassLight, 0);
+    g.stroke({ width: 3, color: PALETTE.highlight, alpha: 0.85 });
+  }
+
+  private drawTerrainIcon(
+    g: Graphics,
+    ring: NonNullable<ReturnType<WorldMap['getRing']>>,
+    coord: SectorCoord,
+    kind: 'overgrown' | 'rocky',
+    alpha: number,
+  ): void {
+    const geo = ring.geometry(coord.index);
+    const x = geo.cx;
+    const y = geo.cy;
+    if (kind === 'rocky') {
+      g.circle(x - 6, y + 2, 5).fill({ color: PALETTE.stone, alpha }).stroke({ width: 1.5, color: PALETTE.outline, alpha });
+      g.circle(x + 5, y + 4, 4).fill({ color: PALETTE.stoneDark, alpha }).stroke({ width: 1.5, color: PALETTE.outline, alpha });
+    } else {
+      g.rect(x - 1, y + 2, 2, 8).fill({ color: PALETTE.woodDark, alpha });
+      g.circle(x, y - 2, 7).fill({ color: PALETTE.grassDark, alpha }).stroke({ width: 1.5, color: PALETTE.outline, alpha });
+    }
+  }
+
   // --- Decor (props) deterministe -------------------------------------------
 
   private rebuildProps(state: GameState, map: WorldMap): void {
@@ -158,7 +353,11 @@ export class WorldRenderer {
 
     for (const coord of map.sectors()) {
       if (coord.ring === 0) continue;
-      if (occupied.has(sectorKey(coord))) continue;
+      const key = sectorKey(coord);
+      if (occupied.has(key)) continue;
+      if (state.preparedSectors[key]) continue;
+      if (state.prepJobs[key]) continue;
+      if (blockedSeaAccessKeys(map, state.buildings).has(key)) continue;
 
       const ring = map.getRing(coord.ring);
       if (!ring) continue;
@@ -199,14 +398,16 @@ export class WorldRenderer {
         this.spawnTime.set(b.id, this.elapsed);
       }
 
-      sprite.position.set(geo.cx, geo.cy);
-      sprite.zIndex = geo.cy + 1; // legerement au-dessus du decor a y egal
+      const pos = buildingDisplayPosition(geo, BUILDINGS[b.def].shoreRequired === true);
+      sprite.position.set(pos.x, pos.y);
+      sprite.zIndex = pos.y + 1; // legerement au-dessus du decor a y egal
       sprite.alpha = b.complete ? 1 : 0.6;
 
       // Animation d'apparition (pop avec rebond).
       const age = this.elapsed - (this.spawnTime.get(b.id) ?? this.elapsed);
       const pop = easeOutBack(Math.min(1, age / POP_DURATION));
-      sprite.scale.set(pop);
+      const levelScale = 1 + (b.level - 1) * 0.07;
+      sprite.scale.set(pop * levelScale * BUILDING_DISPLAY.scale);
     }
 
     for (const [id, sprite] of this.buildingSprites) {
@@ -250,6 +451,8 @@ export class WorldRenderer {
     g.clear();
     const t = this.elapsed;
 
+    drawSynergyPaths(g, state, map, t);
+
     for (const b of Object.values(state.buildings)) {
       if (!b.complete) continue;
       const geo = map.geometry(b.sector);
@@ -282,7 +485,44 @@ export class WorldRenderer {
     }
   }
 
+  /** Miniature procedurale pour le panneau de construction (cachee par batiment). */
+  getBuildingIconDataUrl(id: BuildingId, size = 40): string {
+    const key = `${id}:${size}`;
+    const cached = this.buildingIconCache.get(key);
+    if (cached) return cached;
+
+    const texture = this.sprites.getBuildingTexture(id);
+    const sourceCanvas = this.app.renderer.extract.canvas({
+      target: texture,
+      clearColor: [0, 0, 0, 0],
+    }) as HTMLCanvasElement;
+
+    const out = document.createElement('canvas');
+    out.width = size;
+    out.height = size;
+    const ctx = out.getContext('2d');
+    if (!ctx) return '';
+
+    ctx.imageSmoothingEnabled = false;
+    const tw = texture.width;
+    const th = texture.height;
+    const scale = size / Math.max(tw, th);
+    const dw = tw * scale;
+    const dh = th * scale;
+    ctx.drawImage(sourceCanvas, (size - dw) / 2, (size - dh) / 2, dw, dh);
+
+    const url = out.toDataURL('image/png');
+    this.buildingIconCache.set(key, url);
+    return url;
+  }
+
   destroy(): void {
+    this.sea.destroy();
+    this.seaFog.destroy();
+    this.npcIslands.destroy();
+    this.fishingBoats.destroy();
+    this.scoutBoats.destroy();
+    this.villagers.destroy();
     for (const sprite of this.buildingSprites.values()) sprite.destroy();
     for (const s of this.propSprites) s.destroy();
     this.buildingSprites.clear();
@@ -290,6 +530,12 @@ export class WorldRenderer {
     this.sprites.destroy();
     this.world.destroy({ children: true });
   }
+}
+
+function terrainPropSignature(state: GameState, map: WorldMap): string {
+  const prep = Object.keys(state.prepJobs).sort().join(',');
+  const done = Object.keys(state.preparedSectors).sort().join(',');
+  return `${map.ringCount}:${Object.keys(state.buildings).length}:${prep}|${done}`;
 }
 
 // --- Utilitaires ------------------------------------------------------------

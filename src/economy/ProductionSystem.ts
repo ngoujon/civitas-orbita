@@ -10,11 +10,13 @@ import { BUILDINGS } from '@/config/buildings';
 import { getCivModifiers } from '@/config/civilizations';
 import type { ResourceId } from '@/config/resources';
 import type { GameState } from '@/game/GameState';
+import type { WorldMap } from '@/world/WorldMap';
+import { synergyMultiplier } from './ProductionSynergy';
 import { credit, recomputeCapacities, withdraw } from './ResourceManager';
 
 export class ProductionSystem {
   /** dt en secondes (duree d'un tick logique). */
-  update(state: GameState, dt: number): void {
+  update(state: GameState, map: WorldMap, dt: number): void {
     recomputeCapacities(state);
 
     const mods = getCivModifiers(state.civ);
@@ -55,10 +57,11 @@ export class ProductionSystem {
         }
       }
       if (def.produces) {
+        const synergy = synergyMultiplier(state, map, b.id);
         for (const [res, rate] of Object.entries(def.produces) as [ResourceId, number][]) {
           // Bonus passifs de civilisation (global + par ressource) et buff actif.
           const civBonus = mods.productionMultiplier * (mods.productionByResource[res] ?? 1) * buff;
-          credit(state, res, rate * effective * dt * civBonus);
+          credit(state, res, rate * effective * dt * civBonus * synergy);
         }
       }
     }

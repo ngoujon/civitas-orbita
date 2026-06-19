@@ -13,44 +13,78 @@ import { AGES, ageAtLeast, nextAge } from '@/config/ages';
 import type { AgeId } from '@/config/ages';
 import { RESOURCE_LIST } from '@/config/resources';
 import type { ResourceId } from '@/config/resources';
-import { BUILDINGS } from '@/config/buildings';
+import { BUILDINGS, BUILDING_CATEGORY_LABELS, isUpgradeable, maxLevelFor, scaleByLevel } from '@/config/buildings';
 import type { BuildingCategory, BuildingDef, BuildingId, ResourceAmounts } from '@/config/buildings';
-import { buildableAtAge } from '@/buildings/BuildingRegistry';
-import { GAME_SPEEDS } from '@/config/game';
-import type { GameSpeed } from '@/config/game';
+import { buildableCategoriesForState, buildableGroupedByCategory } from '@/buildings/BuildingRegistry';
 import { getCivDef } from '@/config/civilizations';
+import type { CharacterProfile } from '@/api';
 import type { Game } from '@/game/Game';
 import type { SoundSystem } from '@/audio/SoundSystem';
+import { ageAbilityIconSVG } from '@/ui/AbilityIcons';
+import { TechTreePanel } from '@/ui/TechTreePanel';
+import { WorkerAllocationPanel } from '@/ui/WorkerAllocationPanel';
+import { SettingsPanel } from '@/ui/SettingsPanel';
+import { workerIconSVG } from '@/ui/WorkerIcons';
+import {
+  menuIconSVG,
+  recenterIconSVG,
+  settingsIconSVG,
+  soundOffIconSVG,
+  soundOnIconSVG,
+  techTreeIconSVG,
+} from '@/ui/SystemIcons';
+import { GameChatLog } from '@/ui/GameChatLog';
+import { isNpcIslandActive } from '@/world/NpcIslandAbsorption';
+import { formatResourceAmount } from '@/economy/resourceFormat';
+import type { ResourceFlowSnapshot } from '@/economy/ResourceFlow';
+import { RESOURCES } from '@/config/resources';
 
 export class HUD {
   private root: HTMLElement;
   private topBar!: HTMLElement;
   private resourceEls = new Map<ResourceId, { row: HTMLElement; value: HTMLElement }>();
   private popValue!: HTMLElement;
+  private popAllocBtn!: HTMLButtonElement;
   private ageValue!: HTMLElement;
   private civValue!: HTMLElement;
+  private villageValue!: HTMLElement;
   private fpsValue!: HTMLElement;
-  private speedButtons = new Map<GameSpeed, HTMLButtonElement>();
+  private speedValue!: HTMLElement;
 
   private buildPanel!: HTMLElement;
   private buildList!: HTMLElement;
+  /** Categories du panneau construction repliees par le joueur. */
+  private collapsedBuildCategories = new Set<BuildingCategory>();
   private selectionPanel!: HTMLElement;
+  private npcIslandPanel!: HTMLElement;
   private researchPanel!: HTMLElement;
   private abilityPanel!: HTMLElement;
   private abilityBtn!: HTMLButtonElement;
+  private abilityIconEl!: HTMLElement;
   private abilityCd!: HTMLElement;
+  private lastAbilityAge: import('@/config/ages').AgeId | null = null;
   private tooltip!: HTMLElement;
-  private toastHost!: HTMLElement;
+  private resourceTooltipSource: ResourceId | null = null;
+  private chatLog!: GameChatLog;
+  private muteBtn: HTMLButtonElement | null = null;
+  private objectivesPanel!: HTMLElement;
 
   private lastAge: AgeId | null = null;
+  private techTree!: TechTreePanel;
+  private workerPanel!: WorkerAllocationPanel;
+  private settingsPanel!: SettingsPanel;
 
   constructor(
     private readonly game: Game,
     mount: HTMLElement,
     private readonly sound?: SoundSystem,
+    private readonly profile?: CharacterProfile,
   ) {
     this.root = mount;
     this.build();
+    this.techTree = new TechTreePanel(this.game, this.root);
+    this.workerPanel = new WorkerAllocationPanel(this.game, this.root);
+    this.settingsPanel = new SettingsPanel(this.game, this.root, this.sound);
     this.bindEvents();
     this.refresh();
     window.setInterval(() => this.refresh(), 100);
@@ -69,31 +103,32 @@ export class HUD {
       swatch.style.background = colorToCss(def.color);
       const value = el('span', 'hud-res-value');
       value.textContent = '0';
-      row.title = def.name;
       row.append(swatch, value);
       resBox.append(row);
       this.resourceEls.set(def.id, { row, value });
       row.style.display = 'none';
+      row.classList.add('hud-res-hover');
+      row.onmouseenter = () => this.showResourceTooltip(def.id, row);
+      row.onmouseleave = () => this.hideResourceTooltip();
     }
 
     const stats = el('div', 'hud-stats');
     this.popValue = el('span', 'hud-stat');
+    this.popAllocBtn = document.createElement('button');
+    this.popAllocBtn.className = 'hud-worker-trigger';
+    this.popAllocBtn.title = "Repartition main-d'oeuvre (W)";
+    this.popAllocBtn.innerHTML = workerIconSVG(18);
+    this.popAllocBtn.onclick = () => this.workerPanel.toggle();
+    const popWrap = el('span', 'hud-pop-wrap');
+    popWrap.append(iconLabel('Pop', this.popValue), this.popAllocBtn);
     this.ageValue = el('span', 'hud-stat hud-age');
     this.civValue = el('span', 'hud-stat hud-civ');
+    this.villageValue = el('span', 'hud-stat hud-village');
     this.fpsValue = el('span', 'hud-stat hud-fps');
-    stats.append(this.civValue, iconLabel('Pop', this.popValue), this.ageValue, this.fpsValue);
+    this.speedValue = el('span', 'hud-stat hud-speed');
+    stats.append(this.villageValue, this.civValue, popWrap, this.ageValue, this.speedValue, this.fpsValue);
 
-    const speedBox = el('div', 'hud-speed');
-    for (const s of GAME_SPEEDS) {
-      const btn = document.createElement('button');
-      btn.className = 'hud-speed-btn';
-      btn.textContent = s === 0 ? 'II' : `${s}x`;
-      btn.onclick = () => this.game.setSpeed(s);
-      speedBox.append(btn);
-      this.speedButtons.set(s, btn);
-    }
-
-    this.topBar.append(resBox, stats, speedBox);
+    this.topBar.append(resBox, stats);
 
     // Panneau construction (a gauche).
     this.buildPanel = el('div', 'hud-panel hud-build');
@@ -106,64 +141,112 @@ export class HUD {
     this.selectionPanel = el('div', 'hud-panel hud-selection');
     this.selectionPanel.style.display = 'none';
 
+    this.npcIslandPanel = el('div', 'hud-panel hud-selection hud-npc-island');
+    this.npcIslandPanel.style.display = 'none';
+
     // Panneau recherche (bas).
     this.researchPanel = el('div', 'hud-panel hud-research');
 
-    // Panneau capacite active (bas gauche).
+    // Panneau capacite active (bas gauche) — icone procedurale, pas de texte.
     this.abilityPanel = el('div', 'hud-panel hud-ability');
     this.abilityBtn = document.createElement('button');
     this.abilityBtn.className = 'hud-btn hud-ability-btn';
     this.abilityBtn.onclick = () => this.game.activateAbility();
+    this.abilityIconEl = el('div', 'hud-ability-icon');
+    this.abilityBtn.append(this.abilityIconEl);
     this.abilityCd = el('div', 'hud-ability-cd');
-    const abilityTitle = el('div', 'hud-panel-title');
-    abilityTitle.textContent = 'Capacite';
-    this.abilityPanel.append(abilityTitle, this.abilityBtn, this.abilityCd);
+    this.abilityPanel.append(this.abilityBtn, this.abilityCd);
 
-    // Boutons systeme (sauvegarde).
+    // Boutons systeme (bas droite, colonne d icones).
     const sysBox = el('div', 'hud-system');
     sysBox.append(
-      button('Sauver', () => this.game.save()),
-      button('Charger', () => this.game.load()),
-      button('Menu', () => this.confirmNew()),
-      button('Recentrer (C)', () => this.game.recenter()),
+      iconButton(techTreeIconSVG(), 'Technologies (T)', () => this.techTree.toggle()),
+      iconButton(settingsIconSVG(), 'Reglages', () => this.settingsPanel.toggle()),
+      iconButton(menuIconSVG(), 'Menu', () => this.confirmNew()),
+      iconButton(recenterIconSVG(), 'Recentrer (C)', () => this.game.recenter()),
     );
     if (this.sound) {
       const snd = this.sound;
-      const muteBtn = button('', () => {
-        const muted = snd.toggleMute();
-        muteBtn.textContent = muted ? 'Son: OFF' : 'Son: ON';
-      });
-      muteBtn.textContent = snd.isMuted ? 'Son: OFF' : 'Son: ON';
-      sysBox.append(muteBtn);
+      this.muteBtn = iconButton(
+        snd.isMuted ? soundOffIconSVG() : soundOnIconSVG(),
+        snd.isMuted ? 'Activer le son' : 'Couper le son',
+        () => {
+          const muted = snd.toggleMute();
+          this.muteBtn!.innerHTML = muted ? soundOffIconSVG() : soundOnIconSVG();
+          this.muteBtn!.title = muted ? 'Activer le son' : 'Couper le son';
+        },
+      );
+      sysBox.append(this.muteBtn);
     }
 
     // Infobulle de batiment (survol des cartes de construction).
     this.tooltip = el('div', 'hud-tooltip');
     this.tooltip.style.display = 'none';
 
-    // Toasts.
-    this.toastHost = el('div', 'hud-toasts');
+    this.chatLog = new GameChatLog(this.root);
+
+    this.objectivesPanel = el('div', 'hud-objectives');
+    this.objectivesPanel.style.display = 'none';
 
     this.root.append(
       this.topBar,
       this.buildPanel,
       this.selectionPanel,
+      this.npcIslandPanel,
       this.researchPanel,
       this.abilityPanel,
+      this.objectivesPanel,
       sysBox,
       this.tooltip,
-      this.toastHost,
     );
   }
 
   private bindEvents(): void {
-    this.game.bus.on('notify', ({ message, kind }) => this.toast(message, kind));
+    this.game.bus.on('notify', ({ message, kind }) => this.chatLog.add(message, kind));
     this.game.bus.on('age:advanced', () => {
       this.rebuildBuildList();
-      this.toast('Votre civilisation evolue !', 'info');
+      this.techTree.refresh();
     });
     this.game.bus.on('buildmode:changed', () => this.refreshBuildSelection());
     this.game.bus.on('building:selected', () => this.refreshSelectionPanel());
+    this.game.bus.on('building:upgraded', () => this.refreshSelectionPanel());
+    this.game.bus.on('npcIsland:selected', () => this.refreshNpcIslandPanel());
+    this.game.bus.on('tech:researched', () => {
+      this.rebuildBuildList();
+      this.techTree.refresh();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (isTypingTarget(e.target)) return;
+
+      if (e.key === 'Escape' && this.techTree.isOpen()) {
+        e.preventDefault();
+        this.techTree.close();
+        return;
+      }
+
+      if (e.key === 'Escape' && this.workerPanel.isOpen()) {
+        e.preventDefault();
+        this.workerPanel.close();
+        return;
+      }
+
+      if (e.key === 'Escape' && this.settingsPanel.isOpen()) {
+        e.preventDefault();
+        this.settingsPanel.close();
+        return;
+      }
+
+      if (e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        this.techTree.toggle();
+      }
+
+      if (e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        this.workerPanel.toggle();
+      }
+    });
   }
 
   // --- Rafraichissement -----------------------------------------------------
@@ -184,50 +267,125 @@ export class HUD {
       entry.row.style.display = unlocked ? '' : 'none';
       if (unlocked) {
         const cap = state.capacities[def.id];
-        const amount = Math.floor(state.resources[def.id]);
-        entry.value.textContent = def.id === 'science' ? `${amount}` : `${amount}/${Math.floor(cap)}`;
+        entry.value.textContent =
+          def.id === 'science'
+            ? formatResourceAmount(state.resources[def.id])
+            : `${Math.floor(state.resources[def.id])}/${Math.floor(cap)}`;
       }
     }
 
     const pop = state.population;
-    this.popValue.textContent = `${Math.floor(pop.count)}/${Math.floor(pop.capacity)} (${pop.assigned} au travail)`;
+    const happy = Math.floor(pop.happiness ?? 70);
+    this.popValue.textContent = `${Math.floor(pop.count)}/${Math.floor(pop.capacity)} (${pop.assigned} trav.) · ${happy}%`;
     this.ageValue.textContent = AGES[state.age].name;
     const civDef = getCivDef(state.civ);
     this.civValue.textContent = civDef.name;
     this.civValue.style.color = colorToCss(civDef.themeColor);
+    const village = state.villageName || this.profile?.villageName || 'Village';
+    const chief = state.chiefName || this.profile?.chiefName || 'Chef';
+    this.villageValue.textContent = `${village} · ${chief}`;
     this.fpsValue.textContent = `${this.game.getFps()} FPS`;
+    const paused = this.game.isPaused();
+    const spd = this.game.getSpeed();
+    this.speedValue.textContent = paused ? 'Pause' : `${spd}x`;
+    this.speedValue.classList.toggle('hud-paused', paused);
 
     this.refreshAbilityPanel();
-
-    const speed = this.game.getSpeed();
-    for (const [s, btn] of this.speedButtons) {
-      btn.classList.toggle('active', s === speed);
-    }
 
     this.refreshBuildAffordability();
     this.refreshResearchPanel();
     this.refreshSelectionPanel();
+    this.refreshNpcIslandPanel();
+    this.techTree.refresh();
+    this.workerPanel.refresh();
+
+    this.refreshObjectivesPanel();
+
+    if (this.resourceTooltipSource && this.tooltip.style.display !== 'none') {
+      const flow = this.game.getResourceFlow(this.resourceTooltipSource);
+      this.tooltip.innerHTML = resourceTooltipHTML(this.resourceTooltipSource, flow);
+    }
   }
 
   private rebuildBuildList(): void {
     this.buildList.innerHTML = '';
-    const age = this.game.getState().age;
-    for (const def of buildableAtAge(age)) {
-      const card = el('button', 'hud-build-card');
-      card.dataset.building = def.id;
+    const state = this.game.getState();
+    const groups = buildableGroupedByCategory(state);
 
-      const name = el('div', 'hud-build-name');
-      name.textContent = def.name;
-      const cost = el('div', 'hud-build-cost');
-      cost.textContent = formatCost(def.cost);
+    for (const category of buildableCategoriesForState(state)) {
+      const defs = groups.get(category);
+      if (!defs?.length) continue;
 
-      card.append(name, cost);
-      card.onclick = () => this.toggleBuild(def.id);
-      card.onmouseenter = () => this.showTooltip(def.id, card);
-      card.onmouseleave = () => this.hideTooltip();
-      this.buildList.append(card);
+      const section = el('div', 'hud-build-category');
+      const collapsed = this.collapsedBuildCategories.has(category);
+      if (collapsed) section.classList.add('collapsed');
+
+      const header = el('button', 'hud-build-category-title');
+      header.type = 'button';
+      header.setAttribute('aria-expanded', String(!collapsed));
+
+      const toggle = el('span', 'hud-build-category-toggle');
+      toggle.textContent = collapsed ? '\u25B6' : '\u25BC';
+      toggle.setAttribute('aria-hidden', 'true');
+
+      const label = el('span', 'hud-build-category-label');
+      label.textContent = BUILDING_CATEGORY_LABELS[category];
+
+      header.append(toggle, label);
+      header.onclick = () => {
+        if (this.collapsedBuildCategories.has(category)) {
+          this.collapsedBuildCategories.delete(category);
+        } else {
+          this.collapsedBuildCategories.add(category);
+        }
+        this.rebuildBuildList();
+      };
+
+      const cards = el('div', 'hud-build-category-cards');
+
+      for (const def of defs) {
+        cards.append(this.createBuildCard(def));
+      }
+
+      section.append(header, cards);
+      this.buildList.append(section);
     }
+
     this.refreshBuildSelection();
+  }
+
+  private createBuildCard(def: BuildingDef): HTMLButtonElement {
+    const card = el('button', 'hud-build-card');
+    card.dataset.building = def.id;
+
+    const row = el('div', 'hud-build-card-row');
+
+    const icon = document.createElement('img');
+    icon.className = 'hud-build-icon';
+    icon.alt = '';
+    icon.width = 40;
+    icon.height = 40;
+    icon.src = this.game.getBuildingIconUrl(def.id);
+
+    const info = el('div', 'hud-build-info');
+    const name = el('div', 'hud-build-name');
+    name.textContent = def.name;
+    const cost = el('div', 'hud-build-cost');
+    cost.textContent = formatCost(def.cost);
+    info.append(name, cost);
+
+    row.append(icon, info);
+    card.append(row);
+    card.onclick = (e) => {
+      if (e.shiftKey) {
+        this.game.enqueueBuilding(def.id);
+      } else {
+        this.toggleBuild(def.id);
+      }
+    };
+    card.onmouseenter = () => this.showTooltip(def.id, card);
+    card.onmouseleave = () => this.hideTooltip();
+    return card;
   }
 
   private refreshBuildSelection(): void {
@@ -254,28 +412,45 @@ export class HUD {
   // --- Infobulle d'utilite (survol) -----------------------------------------
 
   private showTooltip(id: BuildingId, anchor: HTMLElement): void {
+    this.resourceTooltipSource = null;
     this.tooltip.innerHTML = buildingTooltipHTML(BUILDINGS[id]);
     this.tooltip.style.display = '';
 
-    const rect = anchor.getBoundingClientRect();
-    const tipW = this.tooltip.offsetWidth;
-    const tipH = this.tooltip.offsetHeight;
-
-    // A droite de la carte par defaut ; bascule a gauche si pas de place.
-    let left = rect.right + 12;
-    if (left + tipW > window.innerWidth - 8) left = rect.left - tipW - 12;
-    left = Math.max(8, left);
-
-    let top = rect.top;
-    if (top + tipH > window.innerHeight - 8) top = window.innerHeight - tipH - 8;
-    top = Math.max(8, top);
-
-    this.tooltip.style.left = `${left}px`;
-    this.tooltip.style.top = `${top}px`;
+    this.positionTooltip(anchor);
   }
 
   private hideTooltip(): void {
     this.tooltip.style.display = 'none';
+    this.resourceTooltipSource = null;
+  }
+
+  private showResourceTooltip(id: ResourceId, anchor: HTMLElement): void {
+    this.resourceTooltipSource = id;
+    const flow = this.game.getResourceFlow(id);
+    this.tooltip.innerHTML = resourceTooltipHTML(id, flow);
+    this.tooltip.style.display = '';
+    this.positionTooltip(anchor);
+  }
+
+  private hideResourceTooltip(): void {
+    if (this.resourceTooltipSource === null) return;
+    this.hideTooltip();
+  }
+
+  private positionTooltip(anchor: HTMLElement): void {
+    const rect = anchor.getBoundingClientRect();
+    const tipW = this.tooltip.offsetWidth;
+    const tipH = this.tooltip.offsetHeight;
+
+    let left = rect.left + rect.width / 2 - tipW / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8));
+
+    let top = rect.bottom + 8;
+    if (top + tipH > window.innerHeight - 8) top = rect.top - tipH - 8;
+    top = Math.max(8, top);
+
+    this.tooltip.style.left = `${left}px`;
+    this.tooltip.style.top = `${top}px`;
   }
 
   // --- Panneau selection ----------------------------------------------------
@@ -283,6 +458,10 @@ export class HUD {
   private refreshSelectionPanel(): void {
     const id = this.game.selectedBuilding;
     if (!id) {
+      this.selectionPanel.style.display = 'none';
+      return;
+    }
+    if (this.game.selectedNpcIsland) {
       this.selectionPanel.style.display = 'none';
       return;
     }
@@ -297,12 +476,15 @@ export class HUD {
     this.selectionPanel.innerHTML = '';
 
     const title = el('div', 'hud-panel-title');
-    title.textContent = def.name;
+    const upgradeable = isUpgradeable(def);
+    title.textContent = upgradeable ? `${def.name} — Niv. ${b.level}` : def.name;
 
     const status = el('div', 'hud-sel-line');
     if (!b.complete) {
       const pct = Math.min(100, Math.floor((b.buildProgress / def.buildTime) * 100));
       status.textContent = `Chantier : ${pct}%`;
+    } else if (upgradeable && b.level >= maxLevelFor(def)) {
+      status.textContent = 'Niveau maximum';
     } else {
       status.textContent = 'Operationnel';
     }
@@ -310,19 +492,120 @@ export class HUD {
     const info = el('div', 'hud-sel-line');
     const parts: string[] = [];
     if (def.jobs) parts.push(`Emplois : ${b.workers}/${def.jobs}`);
-    if (def.housing) parts.push(`Logements : ${def.housing}`);
-    if (def.produces) parts.push(`Produit : ${formatRates(def.produces)}`);
-    if (def.consumes) parts.push(`Consomme : ${formatRates(def.consumes)}`);
+    if (def.housing) parts.push(`Logements : ${def.housing * b.level}`);
+    if (def.produces) parts.push(`Produit : ${formatRates(scaleByLevel(def.produces, b.level))}`);
+    if (def.consumes) parts.push(`Consomme : ${formatRates(scaleByLevel(def.consumes, b.level))}`);
+    if (def.storage) parts.push(`Stockage : +${formatCost(scaleByLevel(def.storage, b.level))}`);
+    const synergy = this.game.getBuildingSynergyInfo(id);
+    if (synergy && synergy.neighbors > 0) {
+      parts.push(`Synergie ${synergy.groupLabel} : +${synergy.bonusPct}%`);
+    }
     info.textContent = parts.join(' | ') || 'Batiment central';
 
+    const extras: HTMLElement[] = [];
+    if (b.def !== 'campfire') {
+      const moveHint = el('div', 'hud-sel-line hud-sel-hint');
+      moveHint.textContent = 'Cliquez sur une case libre pour deplacer ce batiment.';
+      extras.push(moveHint);
+    }
+    if (b.def === 'port' && b.complete) {
+      const scout = el('div', 'hud-sel-line');
+      const linked = Object.values(state.scoutBoats).find((s) => s.portId === b.id);
+      if (!linked) {
+        scout.textContent =
+          b.workers > 0
+            ? 'Eclaireur pret au depart'
+            : 'Assignez des travailleurs au port pour lancer l eclaireur';
+      } else if (linked.phase === 'docked') {
+        scout.textContent = 'Eclaireur au port — mer entierement exploree';
+      } else if (linked.phase === 'returning') {
+        scout.textContent = 'Eclaireur en route vers le port';
+      } else {
+        scout.textContent = 'Eclaireur en mer — disperse les nuages';
+      }
+      extras.push(scout);
+    }
+
     const actions = el('div', 'hud-sel-actions');
+    if (b.complete && upgradeable && b.level < maxLevelFor(def)) {
+      const cost = this.game.upgradeCostSelected();
+      const affordable = canAfford(state.resources, cost);
+      const upgradeBtn = button(
+        `Ameliorer (niv. ${b.level + 1}) — ${formatCost(cost)}`,
+        () => this.game.upgradeSelected(),
+      );
+      upgradeBtn.className = 'hud-btn hud-upgrade-btn';
+      if (!affordable) upgradeBtn.classList.add('cannot-afford');
+      actions.append(upgradeBtn);
+    }
     if (def.id !== 'campfire') {
-      const label = b.complete ? 'Demolir' : 'Annuler (remboursе)';
-      actions.append(button(label, () => this.game.demolishSelected()));
+      const label = b.complete ? 'Demolir' : 'Annuler (rembourse)';
+      actions.append(
+        button(label, () => {
+          const msg = b.complete
+            ? `Demolir ${def.name} ? Cette action est irreversible.`
+            : `Annuler la construction de ${def.name} ?`;
+          if (window.confirm(msg)) this.game.demolishSelected();
+        }),
+      );
     }
     actions.append(button('Fermer', () => this.game.selectBuilding(null)));
 
-    this.selectionPanel.append(title, status, info, actions);
+    this.selectionPanel.append(title, status, info, ...extras, actions);
+  }
+
+  // --- Panneau ile PNJ ------------------------------------------------------
+
+  private refreshNpcIslandPanel(): void {
+    const id = this.game.selectedNpcIsland;
+    if (!id) {
+      this.npcIslandPanel.style.display = 'none';
+      return;
+    }
+    const state = this.game.getState();
+    const island = state.npcIslands.find((i) => i.id === id);
+    if (!island || !isNpcIslandActive(island)) {
+      this.npcIslandPanel.style.display = 'none';
+      return;
+    }
+
+    this.npcIslandPanel.style.display = '';
+    this.npcIslandPanel.innerHTML = '';
+
+    const civDef = getCivDef(island.civ);
+    const title = el('div', 'hud-panel-title');
+    title.textContent = island.villageName;
+
+    const chief = el('div', 'hud-sel-line');
+    chief.textContent = `Chef ${island.chiefName} · ${civDef.name} · ${AGES[island.age].name} · ${island.relation}`;
+
+    const lootLine = el('div', 'hud-sel-line');
+    const lootEmpty = Object.values(island.loot).every((v) => (v ?? 0) <= 0);
+    if (island.expedition) {
+      const pct = Math.min(100, Math.floor((island.expedition.progress / island.expedition.duration) * 100));
+      lootLine.textContent = `Expedition en cours : ${pct} %`;
+    } else if (lootEmpty && island.lootCooldown > 0) {
+      lootLine.textContent = `Butin epuise — regeneration dans ${Math.ceil(island.lootCooldown)} s`;
+    } else if (lootEmpty) {
+      lootLine.textContent = 'Butin epuise';
+    } else {
+      lootLine.textContent = `Butin : ${formatCost(island.loot)}`;
+    }
+
+    const actions = el('div', 'hud-sel-actions');
+    if (island.relation === 'hostile' || island.relation === 'neutral') {
+      actions.append(
+        button('Proposer alliance', () => this.game.proposeAlliance(island.id)),
+      );
+    }
+    if (island.relation === 'allied') {
+      actions.append(button('Commerce', () => this.game.tradeWithIsland(island.id)));
+    }
+    const raidBtn = button('Lancer une expedition', () => this.game.startExpedition(island.id));
+    raidBtn.disabled = !this.game.canStartExpedition(island.id);
+    actions.append(raidBtn, button('Fermer', () => this.game.selectNpcIsland(null)));
+
+    this.npcIslandPanel.append(title, chief, lootLine, actions);
   }
 
   // --- Panneau recherche ----------------------------------------------------
@@ -360,39 +643,56 @@ export class HUD {
   // --- Panneau capacite active ----------------------------------------------
 
   private refreshAbilityPanel(): void {
-    const civ = getCivDef(this.game.getState().civ);
     const status = this.game.getAbilityStatus();
-    this.abilityBtn.textContent = status.name;
-    this.abilityBtn.disabled = !status.ready;
-    this.abilityBtn.title = civ.ability.description;
 
-    if (status.buffRemaining > 0) {
-      this.abilityCd.textContent = `Actif : ${Math.ceil(status.buffRemaining)} s`;
+    if (this.lastAbilityAge !== status.ageId) {
+      this.lastAbilityAge = status.ageId;
+      this.abilityIconEl.innerHTML = ageAbilityIconSVG(status.ageId, 52);
+    }
+
+    this.abilityBtn.disabled = !status.ready;
+    this.abilityBtn.title = status.locked
+      ? `${status.name} — verrouillee. Recherchez la maitrise de ${AGES[status.ageId].name} (T).`
+      : `${status.name} — ${status.description}`;
+    this.abilityBtn.setAttribute('aria-label', status.name);
+    this.abilityBtn.classList.toggle('ready', status.ready);
+    this.abilityBtn.classList.toggle('locked', status.locked);
+    this.abilityBtn.classList.toggle('active-buff', status.buffRemaining > 0);
+
+    if (status.locked) {
+      this.abilityCd.textContent = '🔒';
+      this.abilityCd.className = 'hud-ability-cd locked';
+    } else if (status.buffRemaining > 0) {
+      this.abilityCd.textContent = `${Math.ceil(status.buffRemaining)}s`;
       this.abilityCd.className = 'hud-ability-cd active';
     } else if (status.ready) {
-      this.abilityCd.textContent = 'Prete';
+      this.abilityCd.textContent = '●';
       this.abilityCd.className = 'hud-ability-cd ready';
     } else {
-      this.abilityCd.textContent = `Recharge : ${Math.ceil(status.remaining)} s`;
+      this.abilityCd.textContent = `${Math.ceil(status.remaining)}s`;
       this.abilityCd.className = 'hud-ability-cd';
     }
   }
 
   // --- Divers ---------------------------------------------------------------
 
-  private confirmNew(): void {
-    this.game.openMenu();
+  private refreshObjectivesPanel(): void {
+    const obj = this.game.getActiveObjective();
+    if (!obj) {
+      this.objectivesPanel.style.display = 'none';
+      return;
+    }
+    this.objectivesPanel.style.display = '';
+    this.objectivesPanel.innerHTML = '';
+    const title = el('div', 'hud-objectives-title');
+    title.textContent = 'Objectif';
+    const desc = el('div', 'hud-objectives-desc');
+    desc.textContent = `${obj.title} — ${obj.description}`;
+    this.objectivesPanel.append(title, desc);
   }
 
-  private toast(message: string, kind: 'info' | 'warn'): void {
-    const t = el('div', `hud-toast ${kind}`);
-    t.textContent = message;
-    this.toastHost.append(t);
-    window.setTimeout(() => t.classList.add('show'), 10);
-    window.setTimeout(() => {
-      t.classList.remove('show');
-      window.setTimeout(() => t.remove(), 300);
-    }, 2500);
+  private confirmNew(): void {
+    this.game.openMenu();
   }
 }
 
@@ -402,6 +702,16 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): H
   const node = document.createElement(tag);
   node.className = className;
   return node;
+}
+
+function iconButton(svg: string, title: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'hud-icon-btn';
+  b.title = title;
+  b.innerHTML = svg;
+  b.onclick = onClick;
+  return b;
 }
 
 function button(label: string, onClick: () => void): HTMLButtonElement {
@@ -456,17 +766,6 @@ function canAfford(resources: Record<ResourceId, number>, cost: ResourceAmounts)
   return true;
 }
 
-const CATEGORY_LABELS: Record<BuildingCategory, string> = {
-  special: 'Special',
-  production: 'Production',
-  housing: 'Logement',
-  storage: 'Stockage',
-  research: 'Recherche',
-  military: 'Militaire',
-  trade: 'Commerce',
-};
-
-/** Contenu HTML de l'infobulle d'un batiment (utilite + effets). */
 function buildingTooltipHTML(def: BuildingDef): string {
   const rows: string[] = [];
   if (def.produces) rows.push(effectRow('Produit', formatRates(def.produces), 'pos'));
@@ -480,7 +779,7 @@ function buildingTooltipHTML(def: BuildingDef): string {
   return (
     `<div class="tip-head">` +
     `<span class="tip-name">${def.name}</span>` +
-    `<span class="tip-cat">${CATEGORY_LABELS[def.category]}</span>` +
+    `<span class="tip-cat">${BUILDING_CATEGORY_LABELS[def.category]}</span>` +
     `</div>` +
     `<div class="tip-desc">${def.description}</div>` +
     `<div class="tip-effects">${rows.join('')}</div>`
@@ -494,4 +793,56 @@ function effectRow(label: string, value: string, cls: string): string {
     `<span class="tip-val ${cls}">${value}</span>` +
     `</div>`
   );
+}
+
+function resourceTooltipHTML(id: ResourceId, flow: ResourceFlowSnapshot): string {
+  const def = RESOURCES[id];
+  const stockLabel =
+    id === 'science'
+      ? formatResourceAmount(flow.stock)
+      : `${Math.floor(flow.stock)} / ${Math.floor(flow.capacity)}`;
+
+  const rows: string[] = [
+    effectRow('Stock', stockLabel, ''),
+    effectRow('Entree', formatFlowRate(flow.inPerSec), flow.inPerSec > 0 ? 'pos' : ''),
+    effectRow('Sortie', formatOutRate(flow.outPerSec), flow.outPerSec > 0 ? 'neg' : ''),
+    effectRow(
+      'Bilan net',
+      formatFlowRate(flow.netPerSec),
+      flow.netPerSec > 0.005 ? 'pos' : flow.netPerSec < -0.005 ? 'neg' : '',
+    ),
+  ];
+
+  if (Math.abs(flow.maxInPerSec - flow.inPerSec) > 0.01) {
+    rows.push(effectRow('Entree max', formatFlowRate(flow.maxInPerSec), 'tip-dim'));
+  }
+  if (Math.abs(flow.maxOutPerSec - flow.outPerSec) > 0.01) {
+    rows.push(effectRow('Sortie max', formatOutRate(flow.maxOutPerSec), 'tip-dim'));
+  }
+
+  return (
+    `<div class="tip-head">` +
+    `<span class="tip-name">${def.name}</span>` +
+    `<span class="tip-cat">Flux / s</span>` +
+    `</div>` +
+    `<div class="tip-desc">Entrees et sorties effectives compte tenu des batiments, travailleurs et stocks d intrants.</div>` +
+    `<div class="tip-effects">${rows.join('')}</div>`
+  );
+}
+
+function formatFlowRate(perSec: number): string {
+  if (Math.abs(perSec) < 0.005) return '0/s';
+  const sign = perSec > 0 ? '+' : '';
+  return `${sign}${formatResourceAmount(perSec)}/s`;
+}
+
+function formatOutRate(perSec: number): string {
+  if (perSec <= 0.005) return '0/s';
+  return `-${formatResourceAmount(perSec)}/s`;
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
 }

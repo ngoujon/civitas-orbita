@@ -1,107 +1,118 @@
 /**
- * Systeme de sauvegarde JSON versionne.
+ * Serialisation / deserialisation versionnee de GameState.
  *
- * Enveloppe { version, savedAt, state } stockee en localStorage.
- * Prend en charge les migrations entre versions de schema pour que les
- * anciennes sauvegardes restent chargeables apres une mise a jour.
- *
- * Generique sur le type d'etat `TState` (le GameState pur et serialisable).
+ * Format JSON pur pour persistance locale ou cloud. Les migrations permettent
+ * de charger des sauvegardes plus anciennes apres evolution du schema.
  */
 
-export interface SaveEnvelope<TState> {
+import type { GameState } from '@/game/GameState';
+import { ensureGameMetaState } from '@/game/GameState';
+import { cloneDefaultWorkerShares } from '@/config/workers';
+import { HAPPINESS } from '@/config/happiness';
+import { startingTechs } from '@/config/technologies';
+
+/** Version courante du format de sauvegarde. */
+export const SAVE_VERSION = 1;
+
+export interface SaveEnvelope {
   version: number;
-  savedAt: number;
-  state: TState;
+  savedAt: string;
+  state: GameState;
 }
 
-/** Migration : transforme un etat brut de version N vers N+1. */
-export type Migration = (rawState: unknown) => unknown;
-
-export interface SaveSystemOptions {
-  /** Cle de stockage localStorage. */
-  storageKey: string;
-  /** Version courante du schema. */
-  currentVersion: number;
-  /**
-   * Migrations indexees par version SOURCE.
-   * migrations[1] transforme une sauvegarde v1 en v2, etc.
-   */
-  migrations?: Record<number, Migration>;
+export class SaveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SaveError';
+  }
 }
 
-export class SaveSystem<TState> {
-  constructor(private readonly opts: SaveSystemOptions) {}
+/** Enveloppe l'etat avec metadonnees de version. */
+export function serialize(state: GameState): string {
+  const envelope: SaveEnvelope = {
+    version: SAVE_VERSION,
+    savedAt: new Date().toISOString(),
+    state: cloneState(state),
+  };
+  return JSON.stringify(envelope);
+}
 
-  get storageKey(): string {
-    return this.opts.storageKey;
+/** Parse et migre une sauvegarde vers la version courante. */
+export function deserialize(raw: string): GameState {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new SaveError('Fichier de sauvegarde invalide (JSON corrompu).');
   }
 
-  hasSave(): boolean {
-    return localStorage.getItem(this.opts.storageKey) !== null;
+  if (!parsed || typeof parsed !== 'object') {
+    throw new SaveError('Format de sauvegarde invalide.');
   }
 
-  /** Serialise et persiste l'etat. */
-  save(state: TState): void {
-    const envelope: SaveEnvelope<TState> = {
-      version: this.opts.currentVersion,
-      savedAt: Date.now(),
-      state,
+  const obj = parsed as Record<string, unknown>;
+
+  // Ancien format sans enveloppe (etat brut).
+  if (!('version' in obj) && 'civ' in obj && 'buildings' in obj) {
+    return migrateState(obj as unknown as GameState, 0);
+  }
+
+  const version = typeof obj.version === 'number' ? obj.version : 0;
+  if (!obj.state || typeof obj.state !== 'object') {
+    throw new SaveError('Sauvegarde sans etat de jeu.');
+  }
+
+  return migrateState(obj.state as GameState, version);
+}
+
+/** Applique les migrations incrementales depuis une version source. */
+function migrateState(state: GameState, fromVersion: number): GameState {
+  let s = cloneState(state);
+
+  if (fromVersion < 1) {
+    s = migrateToV1(s);
+  }
+
+  if (fromVersion > SAVE_VERSION) {
+    throw new SaveError(`Sauvegarde trop recente (v${fromVersion}). Mettez le jeu a jour.`);
+  }
+
+  ensureGameMetaState(s);
+  return s;
+}
+
+/** v0 → v1 : champs optionnels ajoutes au fil du dev. */
+function migrateToV1(state: GameState): GameState {
+  if (!state.exploredSea) state.exploredSea = {};
+  if (!state.scoutBoats) state.scoutBoats = {};
+  if (state.nextScoutId === undefined) state.nextScoutId = 0;
+  if (!state.fishingBoats) state.fishingBoats = {};
+  if (state.nextBoatId === undefined) state.nextBoatId = 0;
+  if (!state.unlockedAbilities) state.unlockedAbilities = {};
+  if (!state.researchedTechs) state.researchedTechs = startingTechs();
+  if (!state.preparedSectors) state.preparedSectors = {};
+  if (!state.prepJobs) state.prepJobs = {};
+  if (!state.npcIslands) state.npcIslands = [];
+  if (!state.ability) {
+    state.ability = { cooldownRemaining: 0, buffRemaining: 0, buffMultiplier: 1 };
+  }
+  if (state.totalTicks === undefined) state.totalTicks = 0;
+  if (!state.population?.workerSectorShare) {
+    const count = state.population?.count ?? 1;
+    state.population = {
+      count,
+      capacity: state.population?.capacity ?? 0,
+      assigned: state.population?.assigned ?? 0,
+      workerSectorShare: cloneDefaultWorkerShares(),
+      manualWorkerAllocation: state.population?.manualWorkerAllocation ?? false,
+      happiness: state.population?.happiness ?? HAPPINESS.start,
     };
-    localStorage.setItem(this.opts.storageKey, JSON.stringify(envelope));
+  } else if (state.population.happiness === undefined) {
+    state.population.happiness = HAPPINESS.start;
   }
+  return state;
+}
 
-  /** Exporte la sauvegarde sous forme de chaine JSON (telechargement, partage). */
-  export(state: TState): string {
-    const envelope: SaveEnvelope<TState> = {
-      version: this.opts.currentVersion,
-      savedAt: Date.now(),
-      state,
-    };
-    return JSON.stringify(envelope, null, 2);
-  }
-
-  /** Charge et migre l'etat depuis le stockage. Null si absent ou corrompu. */
-  load(): TState | null {
-    const raw = localStorage.getItem(this.opts.storageKey);
-    if (raw === null) return null;
-    try {
-      return this.parse(raw);
-    } catch (err) {
-      console.error('[SaveSystem] Echec du chargement :', err);
-      return null;
-    }
-  }
-
-  /** Parse + migre une chaine JSON (import manuel ou localStorage). */
-  parse(raw: string): TState {
-    const parsed = JSON.parse(raw) as Partial<SaveEnvelope<unknown>>;
-    if (typeof parsed.version !== 'number') {
-      throw new Error('Sauvegarde invalide : version manquante.');
-    }
-
-    let version = parsed.version;
-    let state = parsed.state;
-    const migrations = this.opts.migrations ?? {};
-
-    while (version < this.opts.currentVersion) {
-      const migrate = migrations[version];
-      if (!migrate) {
-        throw new Error(`Aucune migration de la version ${version} vers ${version + 1}.`);
-      }
-      state = migrate(state);
-      version++;
-    }
-
-    if (version !== this.opts.currentVersion) {
-      throw new Error(
-        `Version de sauvegarde ${version} incompatible avec ${this.opts.currentVersion}.`,
-      );
-    }
-
-    return state as TState;
-  }
-
-  clear(): void {
-    localStorage.removeItem(this.opts.storageKey);
-  }
+function cloneState(state: GameState): GameState {
+  return JSON.parse(JSON.stringify(state)) as GameState;
 }

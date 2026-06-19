@@ -11,12 +11,8 @@ export const TICK_SECONDS = 0.1;
 /** Garde-fou : nombre max de ticks rattrapes par frame (anti spiral of death). */
 export const MAX_TICKS_PER_FRAME = 5;
 
-/** Vitesses de jeu selectionnables. La cle 0 est la pause. */
-export const GAME_SPEEDS = [0, 1, 2, 4] as const;
-export type GameSpeed = (typeof GAME_SPEEDS)[number];
-
-/** Vitesse par defaut au demarrage. */
-export const DEFAULT_SPEED: GameSpeed = 1;
+/** La simulation tourne toujours au rythme du temps reel (1 s reelle = 1 s de jeu). */
+export const REALTIME_SPEED = 1 as const;
 
 /** Resolution de design (la camera s'adapte ensuite a la fenetre reelle). */
 export const DESIGN_WIDTH = 1920;
@@ -24,6 +20,11 @@ export const DESIGN_HEIGHT = 1080;
 
 /** Taille en pixels-monde d'une "tuile" de reference (sert au dessin des sprites). */
 export const TILE_SIZE = 64;
+
+/** Affichage des batiments poses sur la carte (textures procedurales 48x56 px). */
+export const BUILDING_DISPLAY = {
+  scale: 1.38,
+} as const;
 
 /** Parametres de camera. */
 export const CAMERA = {
@@ -45,8 +46,16 @@ export const POPULATION = {
   growthPerSecond: 0.15,
   /** Taux de declin (habitants/seconde) en cas de famine. */
   starvationPerSecond: 0.1,
-  /** Population de depart. */
-  startCount: 3,
+  /** Population de depart (le chef de camp compte pour 1). */
+  startCount: 1,
+} as const;
+
+/** Amelioration des batiments (productivite, logement, stockage x niveau). */
+export const BUILDING_UPGRADE = {
+  /** Niveau maximum par defaut. */
+  maxLevel: 5,
+  /** Multiplicateur du cout de base : cout = base * niveauCourant * costScale. */
+  costScale: 0.85,
 } as const;
 
 /** Palette de base, ambiance Pokemon Rouge Feu (couleurs vives, chaleureuses). */
@@ -57,6 +66,7 @@ export const PALETTE = {
   dirt: 0xa86b32,
   dirtDark: 0x7a4a20,
   water: 0x3a9bdc,
+  waterDeep: 0x256a9e,
   stone: 0x9badb7,
   stoneDark: 0x6b7b85,
   wood: 0xc77b3b,

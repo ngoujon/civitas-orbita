@@ -1,31 +1,22 @@
 /**
  * Definition des civilisations (data-driven).
  *
- * Chaque civilisation apporte :
- *  - des BONUS PASSIFS (modificateurs permanents : production, couts, stockage,
- *    croissance, etc.) appliques par les systemes de simulation ;
- *  - une CAPACITE ACTIVE declenchable par le joueur, avec temps de recharge.
- *
- * Ajouter une civilisation = ajouter une entree ici. Aucun systeme a modifier.
+ * Chaque civilisation apporte des bonus passifs permanents.
+ * Les competences actives viennent des maitrises d ere (technologies).
  */
 
 import type { ResourceId } from './resources';
 import type { ResourceAmounts } from './buildings';
+import type { AbilityEffect } from './abilities';
+
+export type { AbilityEffect } from './abilities';
 
 export type CivId = 'founders' | 'sylvans' | 'builders' | 'scholars' | 'agrarians' | 'merchants';
 
 /** Forme d'embleme (dessine en SVG procedural dans l'UI, zero asset externe). */
 export type EmblemShape = 'flame' | 'leaf' | 'hammer' | 'book' | 'wheat' | 'coin';
 
-/** Effet d'une capacite active. */
-export type AbilityEffect =
-  /** Octroi instantane de ressources. */
-  | { kind: 'grant'; resources: ResourceAmounts }
-  /** Termine immediatement tous les chantiers en cours. */
-  | { kind: 'complete_constructions' }
-  /** Multiplie toute la production pendant `duration` secondes. */
-  | { kind: 'production_buff'; multiplier: number; duration: number };
-
+/** @deprecated Conserve pour la fiche civilisation ; le jeu utilise les competences d ere. */
 export interface CivAbility {
   readonly name: string;
   readonly description: string;

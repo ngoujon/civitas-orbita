@@ -12,6 +12,8 @@
 
 import type { AgeId } from './ages';
 import type { ResourceId } from './resources';
+import type { SynergyGroupId } from './synergy';
+import { BUILDING_UPGRADE } from './game';
 
 export type BuildingId =
   | 'campfire'
@@ -25,9 +27,14 @@ export type BuildingId =
   | 'library'
   | 'house'
   | 'market'
+  | 'port'
   | 'barracks'
   | 'university'
-  | 'factory';
+  | 'factory'
+  | 'habitat_dome'
+  | 'solar_array'
+  | 'quantum_lab'
+  | 'orbital_depot';
 
 export type BuildingCategory =
   | 'special'
@@ -37,6 +44,28 @@ export type BuildingCategory =
   | 'research'
   | 'military'
   | 'trade';
+
+/** Ordre d'affichage des categories dans le panneau de construction. */
+export const BUILDING_CATEGORY_ORDER: readonly BuildingCategory[] = [
+  'housing',
+  'production',
+  'storage',
+  'trade',
+  'research',
+  'military',
+  'special',
+];
+
+/** Libelles francais des categories (UI). */
+export const BUILDING_CATEGORY_LABELS: Record<BuildingCategory, string> = {
+  housing: 'Habitation',
+  production: 'Economie',
+  storage: 'Stockage',
+  trade: 'Commerce',
+  research: 'Recherche',
+  military: 'Militaire',
+  special: 'Special',
+};
 
 /** Cout / production : sous-ensemble partiel de ressources. */
 export type ResourceAmounts = Partial<Record<ResourceId, number>>;
@@ -68,6 +97,18 @@ export interface BuildingDef {
   readonly buildable: boolean;
   /** Unicite : un seul exemplaire autorise (ex: feu de camp). */
   readonly unique?: boolean;
+  /** Doit etre construit sur l anneau exterieur (lisiere / mer). */
+  readonly shoreRequired?: boolean;
+  /** Reserve toute la ligne radiale vers la mer (acces maritime). */
+  readonly reservesSeaAccess?: boolean;
+  /** Niveau maximum (defaut : BUILDING_UPGRADE.maxLevel). */
+  readonly maxLevel?: number;
+  /** Desactive les ameliorations (defaut : active si production/logement/stockage). */
+  readonly upgradeable?: boolean;
+  /** Cout de base d une amelioration (defaut : cost de construction). */
+  readonly upgradeCost?: ResourceAmounts;
+  /** Groupe de synergie : voisins du meme groupe augmentent la production. */
+  readonly synergyGroup?: SynergyGroupId;
 }
 
 export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
@@ -75,14 +116,16 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     id: 'campfire',
     name: 'Feu de camp',
     description:
-      'Coeur de votre colonie. Abrite quelques habitants, stocke un peu de ressources et genere une faible science. Indestructible.',
+      'Coeur de votre colonie. Ameliorable pour booster production, logement et stockage. Indestructible.',
     category: 'special',
     unlockedAtAge: 'fire',
     cost: {},
     buildTime: 0,
-    produces: { science: 0.05 },
+    produces: { food: 0.02, wood: 0.015, stone: 0.01, science: 0.05 },
     housing: 3,
     storage: { food: 50, wood: 50 },
+    upgradeable: true,
+    upgradeCost: { wood: 25, stone: 18, food: 12 },
     sprite: 'campfire',
     buildable: false,
     unique: true,
@@ -93,7 +136,7 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     id: 'lumberjack',
     name: 'Cabane de bucheron',
     description:
-      'Recolte du bois en continu. Le bois est la ressource de base pour construire la plupart des batiments.',
+      'Recolte du bois en continu. Regroupez plusieurs cabanes voisines pour un bonus de production (chemins lumineux).',
     category: 'production',
     unlockedAtAge: 'fire',
     cost: { wood: 20 },
@@ -102,6 +145,7 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     jobs: 2,
     sprite: 'lumberjack',
     buildable: true,
+    synergyGroup: 'wood',
   },
   hut: {
     id: 'hut',
@@ -129,6 +173,7 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     jobs: 3,
     sprite: 'farm',
     buildable: true,
+    synergyGroup: 'food',
   },
   quarry: {
     id: 'quarry',
@@ -143,6 +188,7 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     jobs: 2,
     sprite: 'quarry',
     buildable: true,
+    synergyGroup: 'stone',
   },
   warehouse: {
     id: 'warehouse',
@@ -173,6 +219,7 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     jobs: 3,
     sprite: 'workshop',
     buildable: true,
+    synergyGroup: 'tools',
   },
   library: {
     id: 'library',
@@ -187,6 +234,7 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     jobs: 2,
     sprite: 'library',
     buildable: true,
+    synergyGroup: 'science',
   },
 
   // --- Fer ---
@@ -204,6 +252,7 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     jobs: 4,
     sprite: 'mine',
     buildable: true,
+    synergyGroup: 'iron',
   },
 
   // --- Moyen Age ---
@@ -234,12 +283,29 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     jobs: 3,
     sprite: 'market',
     buildable: true,
+    synergyGroup: 'gold',
+  },
+  port: {
+    id: 'port',
+    name: 'Port',
+    description:
+      'Quai sur la lisiere. Envoie des bateaux de peche et un eclaireur qui disperse les nuages pour reveler la mer inexploree.',
+    category: 'trade',
+    unlockedAtAge: 'medieval',
+    cost: { wood: 100, stone: 60 },
+    buildTime: 10,
+    produces: { food: 0.1 },
+    jobs: 2,
+    sprite: 'port',
+    buildable: true,
+    shoreRequired: true,
+    reservesSeaAccess: true,
   },
   barracks: {
     id: 'barracks',
     name: 'Caserne',
     description:
-      'Fournit des emplois militaires et prepare la defense de votre cite (unites a venir).',
+      'Entraine des miliciens pour defendre le village contre les raids.',
     category: 'military',
     unlockedAtAge: 'medieval',
     cost: { wood: 100, stone: 80, iron: 20 },
@@ -264,6 +330,7 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     jobs: 6,
     sprite: 'university',
     buildable: true,
+    synergyGroup: 'science',
   },
   factory: {
     id: 'factory',
@@ -279,6 +346,67 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     jobs: 10,
     sprite: 'factory',
     buildable: true,
+    synergyGroup: 'tools',
+  },
+
+  // --- Ere Futuriste ---
+  habitat_dome: {
+    id: 'habitat_dome',
+    name: 'Dome d habitation',
+    description:
+      'Arcologie sous cloche energisee : logement dense pour l ere futuriste (25 habitants).',
+    category: 'housing',
+    unlockedAtAge: 'future',
+    cost: { iron: 120, gold: 80, stone: 100 },
+    buildTime: 18,
+    housing: 25,
+    sprite: 'habitat_dome',
+    buildable: true,
+  },
+  solar_array: {
+    id: 'solar_array',
+    name: 'Ferme solaire',
+    description:
+      'Panneaux a haut rendement produisant science et outils avances (consomme de l or).',
+    category: 'production',
+    unlockedAtAge: 'future',
+    cost: { iron: 150, gold: 60, tools: 40 },
+    buildTime: 16,
+    produces: { science: 1.8, tools: 0.4 },
+    consumes: { gold: 0.15 },
+    jobs: 4,
+    sprite: 'solar_array',
+    buildable: true,
+    synergyGroup: 'science',
+  },
+  quantum_lab: {
+    id: 'quantum_lab',
+    name: 'Labo quantique',
+    description:
+      'Recherche de pointe : production massive de science pour repousser les limites.',
+    category: 'research',
+    unlockedAtAge: 'future',
+    cost: { iron: 180, gold: 100, tools: 60 },
+    buildTime: 20,
+    produces: { science: 3.0 },
+    consumes: { gold: 0.2, tools: 0.1 },
+    jobs: 8,
+    sprite: 'quantum_lab',
+    buildable: true,
+    synergyGroup: 'science',
+  },
+  orbital_depot: {
+    id: 'orbital_depot',
+    name: 'Silo orbital',
+    description:
+      'Stockage orbital etendu pour toutes les ressources de la colonie avancee.',
+    category: 'storage',
+    unlockedAtAge: 'future',
+    cost: { iron: 200, gold: 120, stone: 80 },
+    buildTime: 18,
+    storage: { food: 800, wood: 800, stone: 800, iron: 400, gold: 400, tools: 200 },
+    sprite: 'orbital_depot',
+    buildable: true,
   },
 };
 
@@ -287,4 +415,49 @@ export const BUILDING_LIST: readonly BuildingDef[] = Object.values(BUILDINGS);
 /** Total des couts (utile pour l'UI). */
 export function buildingCost(id: BuildingId): ResourceAmounts {
   return BUILDINGS[id].cost;
+}
+
+export function maxLevelFor(def: BuildingDef): number {
+  return def.maxLevel ?? BUILDING_UPGRADE.maxLevel;
+}
+
+/** Seul le feu de camp peut etre ameliore (productivite, logement, stockage x niveau). */
+export function isUpgradeable(def: BuildingDef): boolean {
+  return def.id === 'campfire' && def.upgradeable !== false && maxLevelFor(def) > 1;
+}
+
+/** Cout pour passer du niveau courant au suivant. */
+export function upgradeCostAtLevel(def: BuildingDef, currentLevel: number): ResourceAmounts {
+  if (currentLevel >= maxLevelFor(def)) return {};
+
+  const base = def.upgradeCost ?? def.cost;
+  const scale = currentLevel * BUILDING_UPGRADE.costScale;
+  const out: ResourceAmounts = {};
+  let hasCost = false;
+
+  for (const [res, amount] of Object.entries(base) as [ResourceId, number][]) {
+    if (!amount || amount <= 0) continue;
+    out[res] = Math.max(1, Math.ceil(amount * scale));
+    hasCost = true;
+  }
+
+  if (!hasCost) {
+    return {
+      wood: Math.max(1, Math.ceil(20 * scale)),
+      stone: Math.max(1, Math.ceil(14 * scale)),
+      food: Math.max(1, Math.ceil(10 * scale)),
+    };
+  }
+
+  return out;
+}
+
+/** Applique le multiplicateur de niveau a des taux ou montants. */
+export function scaleByLevel(values: ResourceAmounts, level: number): ResourceAmounts {
+  const out: ResourceAmounts = {};
+  for (const [res, rate] of Object.entries(values) as [ResourceId, number][]) {
+    if (!rate) continue;
+    out[res] = rate * level;
+  }
+  return out;
 }

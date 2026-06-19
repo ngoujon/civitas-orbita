@@ -1,0 +1,394 @@
+/* Site web Civitas Orbita — landing, auth, creation de personnage */
+
+:root {
+  --site-bg: #141018;
+  --site-bg-alt: #1e1828;
+  --site-panel: rgba(28, 24, 40, 0.94);
+  --site-border: #4a4060;
+  --site-accent: #ffe24a;
+  --site-accent-2: #6abe30;
+  --site-text: #fdf6e3;
+  --site-text-dim: #b9b0c8;
+  --site-error: #ff6b6b;
+  --site-font: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+}
+
+.site-page {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  overflow-y: auto;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 140, 40, 0.12), transparent),
+    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(106, 190, 48, 0.08), transparent),
+    var(--site-bg);
+  color: var(--site-text);
+  font-family: var(--site-font);
+}
+
+.site-page.hidden {
+  display: none;
+}
+
+/* --- Landing --- */
+
+.landing-hero {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 64px 24px 48px;
+  text-align: center;
+}
+
+.landing-badge {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 226, 74, 0.15);
+  border: 1px solid rgba(255, 226, 74, 0.35);
+  color: var(--site-accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+.landing-title {
+  font-size: clamp(2.4rem, 6vw, 3.8rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  margin: 0 0 16px;
+  background: linear-gradient(180deg, #fff8e7 0%, var(--site-accent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.landing-tagline {
+  font-size: 1.15rem;
+  line-height: 1.65;
+  color: var(--site-text-dim);
+  margin: 0 auto 36px;
+  max-width: 640px;
+}
+
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.landing-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 24px 64px;
+}
+
+.feature-card {
+  background: var(--site-panel);
+  border: 2px solid var(--site-border);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.feature-title {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  color: var(--site-accent);
+}
+
+.feature-text {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--site-text-dim);
+}
+
+.site-footer {
+  text-align: center;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--site-text-dim);
+  border-top: 1px solid var(--site-border);
+}
+
+/* --- Boutons & formulaires --- */
+
+.site-btn {
+  padding: 12px 28px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.site-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.site-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.site-btn.primary {
+  background: var(--site-accent);
+  color: #1a1408;
+  border-color: #c9a820;
+}
+
+.site-btn.primary:hover:not(:disabled) {
+  background: #fff066;
+}
+
+.site-btn.secondary {
+  background: rgba(106, 190, 48, 0.2);
+  color: var(--site-accent-2);
+  border-color: var(--site-accent-2);
+}
+
+.site-btn.secondary:hover:not(:disabled) {
+  background: rgba(106, 190, 48, 0.35);
+}
+
+.site-btn.ghost {
+  background: transparent;
+  color: var(--site-text-dim);
+  border-color: var(--site-border);
+}
+
+.site-btn.ghost:hover:not(:disabled) {
+  color: var(--site-text);
+  border-color: var(--site-text-dim);
+}
+
+.site-btn.full {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.site-link {
+  background: none;
+  border: none;
+  color: var(--site-accent);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.site-link.inline {
+  font-weight: 700;
+}
+
+.back-link {
+  display: block;
+  margin-bottom: 20px;
+  text-align: left;
+  font-size: 14px;
+}
+
+/* --- Panneaux auth / personnage --- */
+
+.site-panel {
+  max-width: 520px;
+  margin: 48px auto;
+  padding: 36px 32px;
+  background: var(--site-panel);
+  border: 2px solid var(--site-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.character-panel {
+  max-width: 720px;
+}
+
+.site-panel-title {
+  margin: 0 0 8px;
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+.site-panel-subtitle {
+  margin: 0 0 24px;
+  color: var(--site-text-dim);
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+.site-error {
+  background: rgba(255, 107, 107, 0.15);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  color: var(--site-error);
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.site-error.hidden {
+  display: none;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--site-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 2px solid var(--site-border);
+  background: var(--site-bg-alt);
+  color: var(--site-text);
+  font-family: inherit;
+  font-size: 15px;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--site-accent);
+}
+
+.auth-switch {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--site-text-dim);
+}
+
+.character-names {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 560px) {
+  .character-names {
+    grid-template-columns: 1fr;
+  }
+}
+
+.character-section-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  color: var(--site-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.start-grid.compact {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 560px) {
+  .start-grid.compact {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.start-card.compact {
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.start-emblem.small svg {
+  width: 40px;
+  height: 40px;
+}
+
+.start-card.compact .start-card-name {
+  font-size: 13px;
+}
+
+.start-card.compact .start-card-tag {
+  font-size: 11px;
+  display: none;
+}
+
+/* --- Lobby multijoueur ---------------------------------------------------- */
+
+.lobby-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.lobby-panel {
+  max-width: 520px;
+  width: 100%;
+  background: var(--surface, #1a2438);
+  border: 1px solid var(--border, #2a3548);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.lobby-title {
+  margin: 0 0 0.5rem;
+  color: var(--accent, #ffe24a);
+}
+
+.lobby-desc {
+  color: var(--muted, #9badb7);
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+.lobby-list {
+  margin-bottom: 1.5rem;
+  min-height: 3rem;
+}
+
+.lobby-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border, #2a3548);
+}
+
+.lobby-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.lobby-btn {
+  padding: 0.65rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border, #2a3548);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text, #fff);
+  cursor: pointer;
+}
+
+.lobby-btn.primary {
+  border-color: var(--accent, #ffe24a);
+  color: var(--accent, #ffe24a);
+}

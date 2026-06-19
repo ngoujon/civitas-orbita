@@ -41,3 +41,17 @@ export function parseSectorKey(key: string): SectorCoord {
 export function sameSector(a: SectorCoord, b: SectorCoord): boolean {
   return a.ring === b.ring && a.index === b.index;
 }
+
+/** Position d affichage : les batiments de lisiere sont poussees vers la mer. */
+export function buildingDisplayPosition(
+  geo: SectorGeometry,
+  shoreBuilding: boolean,
+): { x: number; y: number } {
+  if (!shoreBuilding || geo.coord.ring <= 0) {
+    return { x: geo.cx, y: geo.cy };
+  }
+  const angle = Math.atan2(geo.cy, geo.cx);
+  const span = geo.outerRadius - geo.innerRadius;
+  const r = geo.innerRadius + span * 0.82;
+  return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+}

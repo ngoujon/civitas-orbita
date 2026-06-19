@@ -8,9 +8,11 @@
 
 import { POPULATION } from '@/config/game';
 import { BUILDINGS } from '@/config/buildings';
+import { HAPPINESS } from '@/config/happiness';
 import { getCivModifiers } from '@/config/civilizations';
 import type { GameState } from '@/game/GameState';
 import { withdraw } from '@/economy/ResourceManager';
+import { assignWorkers } from '@/population/WorkerAllocation';
 
 export class PopulationSystem {
   update(state: GameState, dt: number): void {
@@ -26,45 +28,39 @@ export class PopulationSystem {
     }
     pop.capacity = capacity;
 
+    // 1b) Bonheur : logement, marches, famine.
+    let happiness = state.population.happiness ?? HAPPINESS.start;
+    if (capacity > 0 && pop.count >= capacity * 0.9) {
+      happiness += HAPPINESS.housingBonusPerCap * dt * 10;
+    }
+    for (const b of Object.values(state.buildings)) {
+      if (b.complete && b.def === 'market') happiness += 0.01 * dt;
+    }
     // 2) Consommation de nourriture (proportionnelle a la population vivante).
     const headcount = Math.floor(pop.count);
     const foodNeeded =
       headcount * POPULATION.foodPerCapitaPerSecond * mods.foodConsumptionMultiplier * dt;
     const foodEaten = withdraw(state, 'food', foodNeeded);
     const starving = foodEaten < foodNeeded - 1e-9;
+    if (starving) {
+      happiness -= HAPPINESS.starvationPenaltyPerSecond * dt;
+    }
+
+    pop.happiness = Math.max(HAPPINESS.min, Math.min(HAPPINESS.max, happiness));
 
     // 3) Croissance ou famine.
+    let growthMult = 1;
+    if (pop.happiness >= HAPPINESS.highGrowthThreshold) growthMult = HAPPINESS.highGrowthBonus;
+    else if (pop.happiness <= HAPPINESS.lowGrowthThreshold) growthMult = HAPPINESS.lowGrowthPenalty;
+
     if (starving) {
       pop.count = Math.max(0, pop.count - POPULATION.starvationPerSecond * dt);
     } else if (pop.count < pop.capacity) {
-      const growth = POPULATION.growthPerSecond * mods.populationGrowthMultiplier * dt;
+      const growth = POPULATION.growthPerSecond * mods.populationGrowthMultiplier * growthMult * dt;
       pop.count = Math.min(pop.capacity, pop.count + growth);
     }
 
-    // 4) Affectation des travailleurs aux emplois (greedy, stable).
-    this.assignWorkers(state);
-  }
-
-  /**
-   * Repartit les habitants disponibles sur les emplois ouverts.
-   * Strategie simple et deterministe : on remplit les batiments par ordre d'id.
-   * (Extensible plus tard : priorites, metiers, distance au logement.)
-   */
-  private assignWorkers(state: GameState): void {
-    const available = Math.floor(state.population.count);
-    let remaining = available;
-
-    const jobBuildings = Object.values(state.buildings)
-      .filter((b) => b.complete && (BUILDINGS[b.def].jobs ?? 0) > 0)
-      .sort((a, b) => (a.id < b.id ? -1 : 1));
-
-    for (const b of jobBuildings) {
-      const jobs = BUILDINGS[b.def].jobs ?? 0;
-      const take = Math.max(0, Math.min(jobs, remaining));
-      b.workers = take;
-      remaining -= take;
-    }
-
-    state.population.assigned = available - remaining;
+    // 4) Affectation des travailleurs (auto ou manuelle par secteur).
+    assignWorkers(state);
   }
 }

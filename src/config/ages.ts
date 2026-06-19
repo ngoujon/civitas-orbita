@@ -51,7 +51,14 @@ export const AGES: Readonly<Record<AgeId, AgeDef>> = {
   renaissance: { id: 'renaissance', name: 'Renaissance', order: 5, themeColor: 0xa8743b, scienceCost: 1400, requiredPopulation: 75 },
   industrial: { id: 'industrial', name: 'Revolution Industrielle', order: 6, themeColor: 0x6b6b6b, scienceCost: 2800, requiredPopulation: 120 },
   modern: { id: 'modern', name: 'Ere Moderne', order: 7, themeColor: 0x4ab0e8, scienceCost: 5600, requiredPopulation: 200 },
-  future: { id: 'future', name: 'Futur', order: 8, themeColor: 0x9a4ae8, scienceCost: 11200, requiredPopulation: 350 },
+  future: {
+    id: 'future',
+    name: 'Ere Futuriste',
+    order: 8,
+    themeColor: 0x4ae8ff,
+    scienceCost: 11200,
+    requiredPopulation: 350,
+  },
 };
 
 /** Age de depart d'une nouvelle partie. */

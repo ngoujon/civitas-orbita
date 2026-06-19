@@ -26,6 +26,9 @@ export const INITIAL_RINGS = 4;
 /** Borne dure pour eviter les abus (le moteur peut techniquement aller plus loin). */
 export const MAX_RINGS = 500;
 
+/** Clics sur la plage (hors anneaux) rattaches au secteur de lisiere le plus proche. */
+export const BEACH_SNAP_MARGIN = 32;
+
 /**
  * Nombre de secteurs pour un index d'anneau donne.
  * Anneau 0 = centre = 1 secteur unique.

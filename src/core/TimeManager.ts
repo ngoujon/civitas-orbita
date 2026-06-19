@@ -2,47 +2,59 @@
  * Gestion du temps de simulation.
  *
  * Accumulateur a pas fixe : decouple la logique (deterministe, pas fixe)
- * du rendu (variable, 60 FPS). Gere la vitesse du jeu et la pause.
+ * du rendu (variable, 60 FPS). Supporte pause et multiplicateur de vitesse.
  */
 
-import { DEFAULT_SPEED, GAME_SPEEDS, MAX_TICKS_PER_FRAME, TICK_SECONDS } from '@/config/game';
-import type { GameSpeed } from '@/config/game';
+import { MAX_TICKS_PER_FRAME, REALTIME_SPEED, TICK_SECONDS } from '@/config/game';
+
+export type SpeedMultiplier = 0 | 1 | 2 | 3;
 
 export class TimeManager {
-  /** Vitesse courante (0 = pause). */
-  private speed: GameSpeed = DEFAULT_SPEED;
   /** Temps de simulation accumule non encore consomme (en secondes). */
   private accumulator = 0;
   /** Nombre total de ticks logiques ecoules depuis le debut de la partie. */
   private totalTicks = 0;
-
-  get currentSpeed(): GameSpeed {
-    return this.speed;
-  }
+  private paused = false;
+  private speedMultiplier: SpeedMultiplier = 1;
 
   get tickCount(): number {
     return this.totalTicks;
   }
 
   get isPaused(): boolean {
-    return this.speed === 0;
+    return this.paused;
   }
 
-  setSpeed(speed: GameSpeed): void {
-    this.speed = speed;
+  get speed(): SpeedMultiplier {
+    return this.speedMultiplier;
   }
 
-  /** Passe a la vitesse suivante dans GAME_SPEEDS (cycle hors pause). */
-  cycleSpeed(): GameSpeed {
-    const playable = GAME_SPEEDS.filter((s) => s !== 0);
-    const idx = playable.indexOf(this.speed as Exclude<GameSpeed, 0>);
-    const next = playable[(idx + 1) % playable.length] ?? DEFAULT_SPEED;
-    this.speed = next;
+  /** Met en pause ou reprend la simulation. */
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+  }
+
+  togglePause(): boolean {
+    this.paused = !this.paused;
+    return this.paused;
+  }
+
+  /** Change la vitesse (0 = pause implicite via setPaused). */
+  setSpeed(multiplier: SpeedMultiplier): void {
+    this.speedMultiplier = multiplier;
+    if (multiplier === 0) {
+      this.paused = true;
+    } else {
+      this.paused = false;
+    }
+  }
+
+  /** Cycle 1x → 2x → 3x → 1x. */
+  cycleSpeed(): SpeedMultiplier {
+    const next: SpeedMultiplier =
+      this.speedMultiplier === 1 ? 2 : this.speedMultiplier === 2 ? 3 : 1;
+    this.setSpeed(next);
     return next;
-  }
-
-  togglePause(): void {
-    this.speed = this.speed === 0 ? DEFAULT_SPEED : 0;
   }
 
   /**
@@ -50,16 +62,15 @@ export class TimeManager {
    * Borne par MAX_TICKS_PER_FRAME pour eviter la spirale de la mort.
    */
   advance(realDeltaSeconds: number): number {
-    if (this.speed === 0) return 0;
+    if (this.paused || this.speedMultiplier === 0) return 0;
 
-    this.accumulator += realDeltaSeconds * this.speed;
+    this.accumulator += realDeltaSeconds * REALTIME_SPEED * this.speedMultiplier;
     let ticks = 0;
     while (this.accumulator >= TICK_SECONDS && ticks < MAX_TICKS_PER_FRAME) {
       this.accumulator -= TICK_SECONDS;
       ticks++;
       this.totalTicks++;
     }
-    // Si on a atteint la borne, on jette le surplus pour rester reactif.
     if (ticks >= MAX_TICKS_PER_FRAME) this.accumulator = 0;
     return ticks;
   }

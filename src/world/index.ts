@@ -2,3 +2,8 @@ export * from './Sector';
 export * from './Ring';
 export * from './WorldMap';
 export * from './Placement';
+export * from './Terrain';
+export * from './TerrainSystem';
+export * from './SeaAccess';
+export * from './SeaExploration';
+export * from './ScoutBoat';

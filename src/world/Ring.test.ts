@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Ring } from './Ring';
 import { WorldMap } from './WorldMap';
 import { canBuildAt } from './Placement';
+import { isSpokeClearForPort, resolvePortPlacementSector, spokeKeys } from './SeaAccess';
 import { sectorKey } from './Sector';
-import { sectorsInRing } from '@/config/rings';
+import { sectorsInRing, BEACH_SNAP_MARGIN } from '@/config/rings';
 
 describe('Ring', () => {
   it('a 1 secteur au centre, puis 4, 8, 12, 16...', () => {
@@ -48,6 +49,14 @@ describe('WorldMap', () => {
     expect(pt?.index).toBe(0);
   });
 
+  it('rattache un clic sur la plage au secteur de lisiere', () => {
+    const map = new WorldMap(4);
+    const outer = map.getRing(4)!;
+    const beachR = outer.outerRadius + BEACH_SNAP_MARGIN * 0.5;
+    const pt = map.sectorAtPoint(beachR, 0);
+    expect(pt).toEqual({ ring: 4, index: 0 });
+  });
+
   it('le centre est voisin de tout l anneau 1', () => {
     const map = new WorldMap(2);
     const n = map.neighbors({ ring: 0, index: 0 });
@@ -64,23 +73,84 @@ describe('WorldMap', () => {
 });
 
 describe('Placement', () => {
-  it('refuse le centre et exige l adjacence', () => {
+  it('refuse le centre et exige l adjacence + terrain prepare', () => {
     const map = new WorldMap(3);
     const occupied = new Set<string>([sectorKey({ ring: 0, index: 0 })]);
+    const emptyPrepared = {} as Record<string, true>;
 
-    expect(canBuildAt(map, occupied, { ring: 0, index: 0 }).reason).toBe('center_reserved');
-    // Anneau 1 est adjacent au centre occupe -> constructible.
-    expect(canBuildAt(map, occupied, { ring: 1, index: 0 }).ok).toBe(true);
-    // Anneau 2 n est pas encore adjacent a une construction -> refuse.
-    expect(canBuildAt(map, occupied, { ring: 2, index: 0 }).reason).toBe('not_adjacent');
+    expect(canBuildAt(map, occupied, emptyPrepared, { ring: 0, index: 0 }).reason).toBe(
+      'center_reserved',
+    );
+    expect(canBuildAt(map, occupied, emptyPrepared, { ring: 1, index: 0 }).reason).toBe(
+      'not_prepared',
+    );
+
+    const prepared = { [sectorKey({ ring: 1, index: 0 })]: true as const };
+    expect(canBuildAt(map, occupied, prepared, { ring: 1, index: 0 }).ok).toBe(true);
+    expect(canBuildAt(map, occupied, prepared, { ring: 2, index: 0 }).reason).toBe('not_prepared');
+
+    const preparedWide = {
+      [sectorKey({ ring: 1, index: 0 })]: true as const,
+      [sectorKey({ ring: 2, index: 5 })]: true as const,
+    };
+    expect(canBuildAt(map, occupied, preparedWide, { ring: 2, index: 5 }).reason).toBe('not_adjacent');
   });
 
   it('refuse un secteur deja occupe', () => {
     const map = new WorldMap(3);
+    const key = sectorKey({ ring: 1, index: 0 });
+    const occupied = new Set<string>([sectorKey({ ring: 0, index: 0 }), key]);
+    const prepared = { [key]: true as const };
+    expect(canBuildAt(map, occupied, prepared, { ring: 1, index: 0 }).reason).toBe('occupied');
+  });
+
+  it('refuse les secteurs reserves pour l acces mer', () => {
+    const map = new WorldMap(3);
+    const occupied = new Set<string>([sectorKey({ ring: 0, index: 0 })]);
+    const prepared = {
+      [sectorKey({ ring: 1, index: 0 })]: true as const,
+      [sectorKey({ ring: 2, index: 1 })]: true as const,
+    };
+    const blocked = new Set<string>([sectorKey({ ring: 2, index: 1 })]);
+    expect(
+      canBuildAt(map, occupied, prepared, { ring: 2, index: 1 }, blocked).reason,
+    ).toBe('sea_access_reserved');
+  });
+});
+
+describe('SeaAccess', () => {
+  it('aligne les secteurs d une meme ligne radiale', () => {
+    const map = new WorldMap(4);
+    const anchor = { ring: 4, index: 0 };
+    const keys = spokeKeys(map, anchor);
+    expect(keys.length).toBeGreaterThan(1);
+    expect(keys).toContain('4:0');
+    expect(keys).toContain('1:0');
+  });
+
+  it('detecte une ligne occupee incompatible avec un port', () => {
+    const map = new WorldMap(4);
     const occupied = new Set<string>([
       sectorKey({ ring: 0, index: 0 }),
-      sectorKey({ ring: 1, index: 0 }),
+      sectorKey({ ring: 2, index: 0 }),
     ]);
-    expect(canBuildAt(map, occupied, { ring: 1, index: 0 }).reason).toBe('occupied');
+    expect(isSpokeClearForPort(map, occupied, { ring: 4, index: 0 })).toBe(false);
+    expect(isSpokeClearForPort(map, occupied, { ring: 4, index: 2 })).toBe(true);
+  });
+
+  it('bascule le port vers la lisiere si l anneau interieur est prepare', () => {
+    const map = new WorldMap(4);
+    const occupied = new Set<string>([sectorKey({ ring: 0, index: 0 })]);
+    const prepared = {
+      [sectorKey({ ring: 3, index: 0 })]: true as const,
+      [sectorKey({ ring: 4, index: 0 })]: true as const,
+    };
+    const resolved = resolvePortPlacementSector(
+      map,
+      { ring: 3, index: 0 },
+      occupied,
+      prepared,
+    );
+    expect(resolved).toEqual({ ring: 4, index: 0 });
   });
 });

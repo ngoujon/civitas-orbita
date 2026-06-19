@@ -8,7 +8,7 @@
  * une vue geometrique reutilisable et peu couteuse.
  */
 
-import { MAX_RINGS } from '@/config/rings';
+import { MAX_RINGS, BEACH_SNAP_MARGIN } from '@/config/rings';
 import { Ring } from './Ring';
 import type { SectorCoord, SectorGeometry } from './Sector';
 
@@ -74,10 +74,19 @@ export class WorldMap {
   /** Convertit un point-monde en secteur. Null si hors carte. */
   sectorAtPoint(x: number, y: number): SectorCoord | null {
     const radius = Math.hypot(x, y);
+    const angle = Math.atan2(y, x);
+
+    const outer = this.rings[this.rings.length - 1];
+    if (outer && outer.index > 0) {
+      const snapLimit = outer.outerRadius + BEACH_SNAP_MARGIN;
+      if (radius > outer.outerRadius && radius <= snapLimit) {
+        return { ring: outer.index, index: outer.sectorAtAngle(angle) };
+      }
+    }
+
     for (const ring of this.rings) {
       if (ring.containsRadius(radius)) {
         if (ring.index === 0) return { ring: 0, index: 0 };
-        const angle = Math.atan2(y, x);
         return { ring: ring.index, index: ring.sectorAtAngle(angle) };
       }
     }
