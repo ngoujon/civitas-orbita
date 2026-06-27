@@ -77,11 +77,9 @@ export class ConstructionSystem {
     if (!isUnlocked(buildingId, state)) return { ok: false, reason: 'locked' };
 
     if (def.shoreRequired) {
-      // Port : doit être sur le rivage (anneau N), colonne angulaire libre.
+      // Port : pose libre sur le rivage. La colonne angulaire est bloquée
+      // pour les futures constructions (blockedSeaAccessKeys) mais ne bloque pas la pose.
       if (!isShoreSector(map, coord)) return { ok: false, reason: 'not_shore' };
-      if (def.reservesSeaAccess && !isSpokeClearForPort(map, occupied, coord)) {
-        return { ok: false, reason: 'spoke_occupied' };
-      }
       if (!canAfford(state, this.effectiveCost(state, buildingId))) return { ok: false, reason: 'cannot_afford' };
       return { ok: true, id: '' };
     }
