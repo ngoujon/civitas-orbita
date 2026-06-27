@@ -6,6 +6,7 @@
 import { BUILDINGS } from '@/config/buildings';
 import { POPULATION } from '@/config/game';
 import { getCivModifiers } from '@/config/civilizations';
+import { computeTechBonuses } from '@/config/technologies';
 import {
   BOAT_SPEED,
   FISHING_DURATION,
@@ -80,10 +81,12 @@ export function computeResourceFlows(state: GameState, map: WorldMap): ResourceF
     if (def.produces) {
       for (const [res, rate] of Object.entries(def.produces) as [ResourceId, number][]) {
         if (!rate) continue;
+        const techBonuses = computeTechBonuses(state.researchedTechs);
         const civBonus = mods.productionMultiplier * (mods.productionByResource[res] ?? 1) * buff;
-        const amount = rate * effective * civBonus * synergy;
+        const techMult = techBonuses[res] ?? 1;
+        const amount = rate * effective * civBonus * synergy * techMult;
         inSec[res] += amount;
-        maxIn[res] += rate * activity * civBonus * synergy;
+        maxIn[res] += rate * activity * civBonus * synergy * techMult;
       }
     }
   }

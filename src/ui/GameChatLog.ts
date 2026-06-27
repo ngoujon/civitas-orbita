@@ -1,9 +1,9 @@
 /**
- * Journal de bord : toutes les notifications du jeu (remplace les toasts).
- * Dimensions redimensionnables par le joueur (persistees en localStorage).
+ * Journal de bord : toutes les notifications du jeu.
+ * Redimensionnable + déplaçable par le joueur (persistance localStorage).
  */
 
-const STORAGE_KEY = 'civitas-orbita.chatlog-size';
+const STORAGE_KEY = 'civitas-orbita.chatlog-pos';
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 100;
 
@@ -21,15 +21,14 @@ export class GameChatLog {
 
     const title = document.createElement('div');
     title.className = 'hud-chat-title';
-    title.textContent = 'Journal';
+    title.textContent = '📋 Journal';
 
-    const resizeHint = document.createElement('span');
-    resizeHint.className = 'hud-chat-resize-hint';
-    resizeHint.title = 'Redimensionner le journal';
-    resizeHint.setAttribute('aria-hidden', 'true');
-    resizeHint.textContent = '↘';
+    const hint = document.createElement('span');
+    hint.className = 'hud-chat-drag-hint';
+    hint.title = 'Déplacer le journal';
+    hint.textContent = '⠿';
 
-    header.append(title, resizeHint);
+    header.append(hint, title);
 
     this.messages = document.createElement('div');
     this.messages.className = 'hud-chat-messages';
@@ -37,10 +36,11 @@ export class GameChatLog {
     this.root.append(header, this.messages);
     mount.append(this.root);
 
-    this.applyStoredSize();
+    this.applyStoredPosition();
     this.bindResizePersistence();
+    this.bindDrag(header);
 
-    this.add('Bienvenue — les evenements du village s affichent ici.', 'info');
+    this.add("Bienvenue — les événements du village s'affichent ici.", 'info');
   }
 
   add(message: string, kind: 'info' | 'warn'): void {
@@ -58,52 +58,83 @@ export class GameChatLog {
     line.append(time, text);
     this.messages.append(line);
 
-    const max = 100;
-    while (this.messages.childElementCount > max) {
+    while (this.messages.childElementCount > 100) {
       this.messages.firstElementChild?.remove();
     }
 
     this.messages.scrollTop = this.messages.scrollHeight;
   }
 
-  private applyStoredSize(): void {
+  private applyStoredPosition(): void {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw) as { width?: number; height?: number };
+      const parsed = JSON.parse(raw) as { left?: number; bottom?: number; width?: number; height?: number };
+      if (typeof parsed.left === 'number') this.root.style.left = `${parsed.left}px`;
+      if (typeof parsed.bottom === 'number') this.root.style.bottom = `${parsed.bottom}px`;
       if (typeof parsed.width === 'number' && parsed.width >= MIN_WIDTH) {
-        this.root.style.width = `${Math.round(parsed.width)}px`;
+        this.root.style.width = `${parsed.width}px`;
       }
       if (typeof parsed.height === 'number' && parsed.height >= MIN_HEIGHT) {
-        this.root.style.height = `${Math.round(parsed.height)}px`;
+        this.root.style.height = `${parsed.height}px`;
       }
-    } catch {
-      /* ignore invalid storage */
-    }
+    } catch { /* ignore */ }
   }
 
   private bindResizePersistence(): void {
-    const observer = new ResizeObserver(() => this.scheduleSave());
-    observer.observe(this.root);
+    new ResizeObserver(() => this.scheduleSave()).observe(this.root);
+  }
+
+  private bindDrag(handle: HTMLElement): void {
+    let startX = 0, startY = 0, startLeft = 0, startBottom = 0;
+
+    const onMove = (e: MouseEvent) => {
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const newLeft = Math.max(0, Math.min(window.innerWidth - this.root.offsetWidth, startLeft + dx));
+      const newBottom = Math.max(0, Math.min(window.innerHeight - this.root.offsetHeight, startBottom - dy));
+      this.root.style.left = `${newLeft}px`;
+      this.root.style.bottom = `${newBottom}px`;
+      this.root.style.right = 'auto';
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      this.scheduleSave();
+    };
+
+    handle.addEventListener('mousedown', (e) => {
+      if ((e.target as HTMLElement).closest('button')) return;
+      e.preventDefault();
+      const rect = this.root.getBoundingClientRect();
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = rect.left;
+      startBottom = window.innerHeight - rect.bottom;
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
   }
 
   private scheduleSave(): void {
     if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
       this.saveTimer = null;
-      this.persistSize();
+      this.persistPosition();
     }, 120);
   }
 
-  private persistSize(): void {
-    const width = this.root.offsetWidth;
-    const height = this.root.offsetHeight;
-    if (width < MIN_WIDTH || height < MIN_HEIGHT) return;
+  private persistPosition(): void {
+    const rect = this.root.getBoundingClientRect();
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ width, height }));
-    } catch {
-      /* quota / private mode */
-    }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        left: Math.round(rect.left),
+        bottom: Math.round(window.innerHeight - rect.bottom),
+        width: this.root.offsetWidth,
+        height: this.root.offsetHeight,
+      }));
+    } catch { /* quota / private mode */ }
   }
 }
 

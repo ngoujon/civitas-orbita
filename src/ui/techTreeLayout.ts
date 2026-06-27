@@ -52,6 +52,16 @@ export const TECH_NODE_GLYPH: Readonly<Record<TechId, string>> = {
   mastery_industrial: 'Id',
   mastery_modern: 'Mo',
   mastery_future: 'Fu',
+  // Passifs
+  irrigation: 'IR',
+  geology: 'GE',
+  metallurgy: 'ME',
+  guilds: 'CP',
+  mass_production: 'MP',
+  // Batiments supplementaires
+  sawmill_tech: 'SC',
+  banking_tech: 'BQ',
+  printing_press: 'IP',
 };
 
 let cachedLayout: TechTreeLayout | null = null;
@@ -85,6 +95,15 @@ const TECH_GRID: Readonly<Record<TechId, { col: number; tier: number }>> = {
   mastery_industrial: { col: 4, tier: 6 },
   mastery_modern: { col: 4, tier: 7 },
   mastery_future: { col: 4, tier: 8 },
+  // Passifs (col 5) et bâtiments supplémentaires (col 6)
+  irrigation: { col: 5, tier: 0 },
+  sawmill_tech: { col: 5, tier: 1 },
+  geology: { col: 5, tier: 2 },
+  metallurgy: { col: 5, tier: 3 },
+  mass_production: { col: 5, tier: 5 },
+  banking_tech: { col: 6, tier: 2 },
+  guilds: { col: 6, tier: 3 },
+  printing_press: { col: 6, tier: 4 },
 };
 
 export function getTechTreeLayout(): TechTreeLayout {

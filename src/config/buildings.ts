@@ -34,7 +34,10 @@ export type BuildingId =
   | 'habitat_dome'
   | 'solar_array'
   | 'quantum_lab'
-  | 'orbital_depot';
+  | 'orbital_depot'
+  | 'sawmill'
+  | 'bank'
+  | 'printing_house';
 
 export type BuildingCategory =
   | 'special'
@@ -194,12 +197,12 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     id: 'warehouse',
     name: 'Entrepot',
     description:
-      'Augmente fortement la capacite de stockage (nourriture, bois, pierre). Evite le gaspillage quand les stocks sont pleins.',
+      'Augmente la capacite de stockage de toutes les ressources. Evite le gaspillage quand les stocks sont pleins.',
     category: 'storage',
     unlockedAtAge: 'stone',
     cost: { wood: 40, stone: 20 },
     buildTime: 5,
-    storage: { food: 300, wood: 300, stone: 300 },
+    storage: { food: 300, wood: 300, stone: 300, iron: 100, gold: 100, tools: 50 },
     sprite: 'warehouse',
     buildable: true,
   },
@@ -407,6 +410,48 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
     storage: { food: 800, wood: 800, stone: 800, iron: 400, gold: 400, tools: 200 },
     sprite: 'orbital_depot',
     buildable: true,
+  },
+  sawmill: {
+    id: 'sawmill',
+    name: 'Scierie',
+    description: 'Transforme le bois brut en planches ; produit du bois a un rythme soutenu.',
+    category: 'production',
+    unlockedAtAge: 'stone',
+    cost: { wood: 30, stone: 15 },
+    buildTime: 5,
+    produces: { wood: 0.5 },
+    jobs: 2,
+    sprite: 'lumberjack',
+    buildable: true,
+    synergyGroup: 'wood',
+  },
+  bank: {
+    id: 'bank',
+    name: 'Banque',
+    description: 'Institution financiere qui genere de l or passivement grace aux echanges commerciaux.',
+    category: 'trade',
+    unlockedAtAge: 'medieval',
+    cost: { stone: 50, gold: 20 },
+    buildTime: 8,
+    produces: { gold: 0.25 },
+    jobs: 3,
+    sprite: 'market',
+    buildable: true,
+    synergyGroup: 'gold',
+  },
+  printing_house: {
+    id: 'printing_house',
+    name: "Maison d'edition",
+    description: 'Diffuse le savoir a grande echelle ; produit de la science supplementaire.',
+    category: 'research',
+    unlockedAtAge: 'renaissance',
+    cost: { wood: 50, stone: 40 },
+    buildTime: 10,
+    produces: { science: 0.4 },
+    jobs: 3,
+    sprite: 'library',
+    buildable: true,
+    synergyGroup: 'science',
   },
 };
 

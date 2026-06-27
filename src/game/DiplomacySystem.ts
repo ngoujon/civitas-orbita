@@ -9,16 +9,17 @@ import type { NpcIslandState } from '@/world/NpcIsland';
 
 export class DiplomacySystem {
   update(state: GameState, dt: number): string | null {
+    const messages: string[] = [];
     for (const island of state.npcIslands) {
       if (island.absorbed || island.relation !== 'allied') continue;
       island.tributeCooldown = Math.max(0, island.tributeCooldown - dt);
       if (island.tributeCooldown <= 0) {
         credit(state, 'gold', DIPLOMACY.tributeGold);
         island.tributeCooldown = DIPLOMACY.tributeInterval;
-        return `${island.villageName} vous envoie un tribut de ${DIPLOMACY.tributeGold} or.`;
+        messages.push(`${island.villageName} vous envoie un tribut de ${DIPLOMACY.tributeGold} or.`);
       }
     }
-    return null;
+    return messages.length > 0 ? messages.join(' ') : null;
   }
 
   /** Tente d etablir une alliance (coute de l or). */

@@ -58,8 +58,8 @@ export class LandingPage {
         'De l\'Age de pierre a l\'ere spatiale. Recherchez, construisez et evoluez pour debloquer de nouvelles technologies.',
       ),
       this.featureCard(
-        'Multijoueur a venir',
-        'Creez votre compte, incarnez le chef de village et preparez-vous a cooperer ou rivaliser avec d\'autres joueurs.',
+        'Multijoueur',
+        'Créez votre compte, incarnez le chef de village et coopérez ou rivalisez avec d\'autres joueurs en temps réel.',
       ),
     );
 

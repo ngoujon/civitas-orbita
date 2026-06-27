@@ -168,72 +168,144 @@ function drawGeneric(g: Graphics): void {
 }
 
 function drawCampfire(g: Graphics): void {
-  // Buches croisees (les flammes sont animees dans WorldRenderer).
-  poly(g, [12, 50, 38, 38, 40, 44, 14, 56], PALETTE.woodDark);
-  poly(g, [12, 38, 38, 50, 36, 56, 10, 44], PALETTE.wood);
-  // Cercle de pierres.
-  for (const px of [10, 24, 38]) {
-    g.circle(px, 50, 4).fill(PALETTE.stone).stroke({ width: 2, color: OUTLINE });
-    g.circle(px, 50, 1.5).fill(shade(PALETTE.stone, 1.3));
+  // Sol charbonneux.
+  g.ellipse(24, 50, 15, 5).fill({ color: 0x3a1a00, alpha: 0.55 });
+  // Buches croisees plus epaisses.
+  poly(g, [10, 52, 38, 39, 40, 45, 12, 57], PALETTE.woodDark);
+  poly(g, [10, 40, 38, 53, 36, 57, 8, 45], PALETTE.wood);
+  // Veines du bois.
+  g.moveTo(12, 42).lineTo(37, 53).stroke({ width: 1, color: shade(PALETTE.wood, 0.7) });
+  g.moveTo(11, 52).lineTo(37, 41).stroke({ width: 1, color: shade(PALETTE.woodDark, 0.7) });
+  // Anneau de 5 pierres.
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const px = 24 + Math.cos(a) * 11;
+    const py = 50 + Math.sin(a) * 4;
+    const c = i % 2 === 0 ? PALETTE.stone : PALETTE.stoneDark;
+    g.circle(px, py, 3.5).fill(c).stroke({ width: 1.5, color: OUTLINE });
+    g.circle(px - 0.8, py - 0.8, 1.2).fill(shade(PALETTE.stone, 1.35));
   }
-  // Petites braises.
-  g.circle(22, 46, 3).fill(PALETTE.fire);
-  g.circle(27, 47, 2).fill(PALETTE.fireHot);
+  // Braises vives (les flammes sont animees dans WorldRenderer).
+  g.circle(20, 47, 3).fill(PALETTE.fire);
+  g.circle(26, 46, 2.5).fill(PALETTE.fireHot);
+  g.circle(23, 44, 1.5).fill(0xffeebb);
 }
 
 function drawHut(g: Graphics): void {
-  roof(g, 24, 12, 19, 46, PALETTE.wood);
-  body(g, 17, 40, 14, 10, PALETTE.woodDark);
-  door(g, 21, 42, 6, 8, shade(PALETTE.woodDark, 0.7));
+  // Base en pierre (soubassement).
+  g.rect(13, 43, 22, 7).fill(PALETTE.stone).stroke({ width: 2, color: OUTLINE });
+  g.rect(13, 43, 22, 2).fill(shade(PALETTE.stone, 1.2));
+  // Corps en rondins.
+  body(g, 14, 35, 20, 10, PALETTE.woodDark);
+  // Texture rondins horizontaux.
+  for (let i = 1; i < 3; i++) {
+    g.moveTo(14, 35 + i * 3).lineTo(34, 35 + i * 3).stroke({ width: 0.8, color: shade(PALETTE.woodDark, 0.72) });
+  }
+  // Toit en chaume (plus large, plus detaille).
+  roof(g, 24, 9, 22, 36, PALETTE.wood);
+  // Lignes de chaume.
+  for (let i = 0; i < 3; i++) {
+    g.moveTo(24 - (i + 1) * 5, 36 - i * 6).lineTo(24, 9 + i * 9).stroke({ width: 0.8, color: shade(PALETTE.wood, 0.78) });
+    g.moveTo(24 + (i + 1) * 5, 36 - i * 6).lineTo(24, 9 + i * 9).stroke({ width: 0.8, color: shade(PALETTE.wood, 0.78) });
+  }
+  // Porte.
+  door(g, 20, 38, 8, 12, shade(PALETTE.woodDark, 0.65));
+  // Trou de fumee au sommet.
+  g.ellipse(24, 12, 3, 1.5).fill({ color: 0x2a1a00, alpha: 0.6 });
 }
 
 function drawLumberjack(g: Graphics): void {
-  body(g, 8, 28, 24, 22, PALETTE.wood);
-  roof(g, 20, 14, 18, 30, PALETTE.roofDark);
-  door(g, 16, 38, 8, 12, shade(PALETTE.woodDark, 0.8));
-  windowPane(g, 24, 32, 6, 6);
+  // Pile de rondins (cote gauche du batiment).
+  for (let i = 0; i < 3; i++) {
+    g.rect(2, 34 + i * 5, 7, 4).fill(PALETTE.wood).stroke({ width: 1.5, color: OUTLINE });
+    g.ellipse(5.5, 34 + i * 5, 3, 1.5).fill(shade(PALETTE.woodDark, 1.15));
+  }
+  // Batiment.
+  body(g, 9, 28, 24, 22, PALETTE.wood);
+  roof(g, 21, 14, 18, 30, PALETTE.roofDark);
+  door(g, 17, 38, 8, 12, shade(PALETTE.woodDark, 0.8));
+  windowPane(g, 25, 32, 6, 6);
+  // Sciure de sol.
+  g.ellipse(40, 48, 6, 3).fill({ color: PALETTE.dirt, alpha: 0.5 });
   // Souche + hache.
-  g.ellipse(40, 46, 5, 3).fill(PALETTE.woodDark).stroke({ width: 2, color: OUTLINE });
-  g.rect(39, 30, 2, 14).fill(shade(PALETTE.wood, 0.7));
-  poly(g, [37, 30, 44, 28, 43, 33], PALETTE.stone);
+  g.ellipse(40, 48, 5.5, 3.5).fill(PALETTE.woodDark).stroke({ width: 2, color: OUTLINE });
+  g.ellipse(40, 46, 4, 2).fill(shade(PALETTE.woodDark, 1.25));
+  g.rect(38.5, 32, 2.5, 14).fill(shade(PALETTE.wood, 0.65)).stroke({ width: 1, color: OUTLINE });
+  poly(g, [36, 30, 44, 27, 43, 34], PALETTE.stone);
+  g.circle(43, 28.5, 1.5).fill(shade(PALETTE.stone, 1.4));
 }
 
 function drawFarm(g: Graphics): void {
-  // Champ laboure.
-  g.rect(6, 34, 36, 16).fill(PALETTE.dirt).stroke({ width: 2, color: OUTLINE });
+  // Champ laboure avec sillons.
+  g.rect(5, 34, 24, 16).fill(PALETTE.dirt).stroke({ width: 2, color: OUTLINE });
   for (let i = 0; i < 4; i++) {
-    g.rect(9 + i * 9, 36, 4, 12).fill(PALETTE.grassLight);
-    g.rect(9 + i * 9, 36, 4, 3).fill(shade(PALETTE.grassLight, 1.2));
+    const x = 7 + i * 5;
+    g.rect(x, 36, 3, 10).fill(PALETTE.grassLight);
+    // Epis de ble.
+    g.rect(x, 34, 3, 4).fill(0xdda020);
+    g.rect(x, 36, 3, 2).fill(shade(PALETTE.grassLight, 1.25));
+    // Grain sur epi.
+    g.circle(x + 1, 33, 1.2).fill(0xf0c040);
+    g.circle(x + 2.2, 34, 1.2).fill(0xf0c040);
   }
-  // Grange.
-  body(g, 30, 26, 14, 12, PALETTE.roof);
-  roof(g, 37, 16, 9, 26, shade(PALETTE.roof, 0.85));
-  windowPane(g, 34, 29, 6, 6);
+  // Grange (rouge typique).
+  body(g, 29, 23, 16, 16, PALETTE.roof);
+  roof(g, 37, 11, 10, 23, shade(PALETTE.roof, 0.82));
+  // Croix de grange.
+  g.moveTo(30, 25).lineTo(44, 37).stroke({ width: 2, color: shade(PALETTE.roof, 0.6) });
+  g.moveTo(44, 25).lineTo(30, 37).stroke({ width: 2, color: shade(PALETTE.roof, 0.6) });
+  g.rect(30, 25, 14, 12).stroke({ width: 1.5, color: OUTLINE });
+  windowPane(g, 33, 27, 5, 5);
 }
 
 function drawQuarry(g: Graphics): void {
-  g.ellipse(24, 46, 18, 6).fill(PALETTE.dirtDark).stroke({ width: 2, color: OUTLINE });
+  // Excavation (plus profonde).
+  g.ellipse(22, 46, 20, 8).fill(PALETTE.dirtDark).stroke({ width: 2, color: OUTLINE });
+  g.ellipse(22, 46, 13, 5).fill(shade(PALETTE.dirtDark, 0.8));
   const rocks: [number, number, number, number][] = [
-    [16, 40, 9, PALETTE.stone],
-    [30, 43, 7, PALETTE.stoneDark],
-    [23, 31, 6, PALETTE.stone],
-    [34, 35, 5, PALETTE.stoneDark],
+    [14, 42, 8.5, PALETTE.stone],
+    [28, 44, 7, PALETTE.stoneDark],
+    [21, 31, 7, PALETTE.stone],
+    [33, 36, 5.5, PALETTE.stoneDark],
+    [10, 36, 5, shade(PALETTE.stone, 1.1)],
   ];
   for (const [x, y, r, c] of rocks) {
     g.circle(x, y, r).fill(c).stroke({ width: OUTLINE_W, color: OUTLINE });
-    g.circle(x - r * 0.3, y - r * 0.3, r * 0.4).fill(shade(c, 1.3));
+    g.circle(x - r * 0.35, y - r * 0.35, r * 0.38).fill(shade(c, 1.35));
+    // Fissure dans le rocher.
+    g.moveTo(x + r * 0.2, y + r * 0.1).lineTo(x - r * 0.3, y + r * 0.5).stroke({ width: 1, color: shade(c, 0.65) });
   }
+  // Mini wagonnet de mine.
+  g.rect(33, 47, 9, 5).fill(0x7a5840).stroke({ width: 1.5, color: OUTLINE });
+  g.rect(33, 47, 9, 2).fill(PALETTE.stoneDark);
+  g.circle(35, 52, 1.5).fill(OUTLINE);
+  g.circle(40, 52, 1.5).fill(OUTLINE);
 }
 
 function drawWarehouse(g: Graphics): void {
-  body(g, 8, 26, 32, 24, PALETTE.wood);
-  roof(g, 24, 12, 21, 26, PALETTE.woodDark);
-  // Caisses empilees.
-  for (const [x, y] of [[12, 36], [26, 36], [19, 24]] as [number, number][]) {
-    g.rect(x, y, 10, 12).fill(PALETTE.dirt).stroke({ width: 2, color: OUTLINE });
-    g.rect(x, y, 10, 3).fill(shade(PALETTE.dirt, 1.2));
-    g.moveTo(x, y).lineTo(x + 10, y + 12).stroke({ width: 1.5, color: shade(PALETTE.dirt, 0.7) });
+  body(g, 7, 24, 34, 26, PALETTE.wood);
+  roof(g, 24, 10, 22, 24, PALETTE.woodDark);
+  // Texture bois horizontale.
+  for (let i = 1; i < 4; i++) {
+    g.moveTo(7, 24 + i * 6).lineTo(41, 24 + i * 6).stroke({ width: 0.8, color: shade(PALETTE.wood, 0.82) });
   }
+  // Grande porte double.
+  g.rect(16, 35, 14, 15).fill(shade(PALETTE.woodDark, 0.7)).stroke({ width: 2, color: OUTLINE });
+  g.moveTo(23, 35).lineTo(23, 50).stroke({ width: 1.5, color: shade(PALETTE.woodDark, 0.55) });
+  g.moveTo(16, 40).lineTo(30, 40).stroke({ width: 1, color: shade(PALETTE.woodDark, 0.6) });
+  g.moveTo(16, 46).lineTo(30, 46).stroke({ width: 1, color: shade(PALETTE.woodDark, 0.6) });
+  // Caisses empilees (droite).
+  for (const [x, y] of [[32, 36], [32, 28]] as [number, number][]) {
+    g.rect(x, y, 8, 8).fill(PALETTE.dirt).stroke({ width: 1.5, color: OUTLINE });
+    g.rect(x, y, 8, 2).fill(shade(PALETTE.dirt, 1.2));
+    g.moveTo(x, y).lineTo(x + 8, y + 8).stroke({ width: 1, color: shade(PALETTE.dirt, 0.72) });
+  }
+  // Tonneau (gauche).
+  g.rect(5, 38, 8, 10).fill(0x8b5a2b).stroke({ width: 1.5, color: OUTLINE });
+  g.ellipse(9, 38, 4, 2).fill(shade(0x8b5a2b, 1.2)).stroke({ width: 1, color: OUTLINE });
+  g.ellipse(9, 48, 4, 2).fill(shade(0x8b5a2b, 0.85)).stroke({ width: 1, color: OUTLINE });
+  g.moveTo(5, 41).lineTo(13, 41).stroke({ width: 1.5, color: OUTLINE });
+  g.moveTo(5, 45).lineTo(13, 45).stroke({ width: 1.5, color: OUTLINE });
 }
 
 function drawWorkshop(g: Graphics): void {

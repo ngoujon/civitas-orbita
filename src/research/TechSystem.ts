@@ -36,6 +36,7 @@ export class TechSystem {
     const def = TECHNOLOGIES[techId];
     if (!def) return { ok: false, reason: 'not_found' };
     if (this.isResearched(state, techId)) return { ok: false, reason: 'already_researched' };
+    if (!ageAtLeast(state.age, def.requiredAge)) return { ok: false, reason: 'age_locked' };
     for (const pre of def.prerequisites) {
       if (!this.isResearched(state, pre)) return { ok: false, reason: 'prerequisites' };
     }

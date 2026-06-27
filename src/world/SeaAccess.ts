@@ -93,7 +93,8 @@ export function resolvePortPlacementSector(
     const candidate = { ring: map.ringCount, index: oi };
     const key = sectorKey(candidate);
     if (occupied.has(key)) continue;
-    if (!prepared[key]) continue;
+    // Les secteurs de rivage n'ont pas besoin d'être préparés pour le port.
+    void prepared;
     return candidate;
   }
 

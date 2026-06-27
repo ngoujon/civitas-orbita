@@ -7,6 +7,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import { applyCommand, joinRoom, leaveRoom } from '../game/WorldRoom.js';
 import type { WsClientMessage } from '../game/protocol.js';
+import { getDb } from '../db.js';
 
 export function attachWebSocket(server: Server): void {
   const wss = new WebSocketServer({ server, path: '/ws' });
@@ -45,6 +46,9 @@ export function attachWebSocket(server: Server): void {
 
     ws.on('close', () => {
       leaveRoom(userId, worldId);
+      getDb()
+        .prepare('UPDATE worlds SET player_count = MAX(0, player_count - 1) WHERE id = ?')
+        .run(worldId);
     });
   });
 }

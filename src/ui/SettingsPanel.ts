@@ -5,7 +5,6 @@
 import { api } from '@/api';
 import type { Game } from '@/game/Game';
 import type { SoundSystem } from '@/audio/SoundSystem';
-import type { SpeedMultiplier } from '@/core/TimeManager';
 import { el } from '@/web/helpers';
 
 export class SettingsPanel {
@@ -44,21 +43,6 @@ export class SettingsPanel {
     };
     volumeRow.append(volumeLabel, this.volumeSlider);
 
-    const speedRow = el('div', 'settings-row');
-    const speedLabel = el('span', 'settings-label', 'Vitesse du jeu');
-    const speedBtns = el('div', 'settings-speed-btns');
-    for (const spd of [1, 2, 3] as SpeedMultiplier[]) {
-      const btn = document.createElement('button');
-      btn.className = 'settings-speed-btn';
-      btn.textContent = `${spd}x`;
-      btn.onclick = () => {
-        this.game.setSpeed(spd);
-        this.updateSpeedButtons(speedBtns, spd);
-      };
-      speedBtns.append(btn);
-    }
-    speedRow.append(speedLabel, speedBtns);
-
     const pauseBtn = document.createElement('button');
     pauseBtn.className = 'hud-btn settings-action';
     pauseBtn.textContent = 'Pause / Reprendre (Espace)';
@@ -77,15 +61,7 @@ export class SettingsPanel {
     closeBtn.textContent = 'Fermer';
     closeBtn.onclick = () => this.close();
 
-    this.root.append(title, volumeRow, speedRow, pauseBtn, logoutBtn, closeBtn);
-    this.updateSpeedButtons(speedBtns, this.game.getSpeed());
-  }
-
-  private updateSpeedButtons(container: HTMLElement, active: SpeedMultiplier): void {
-    for (const btn of container.querySelectorAll('.settings-speed-btn')) {
-      const spd = Number((btn as HTMLButtonElement).textContent?.replace('x', '')) as SpeedMultiplier;
-      btn.classList.toggle('active', spd === active && !this.game.isPaused());
-    }
+    this.root.append(title, volumeRow, pauseBtn, logoutBtn, closeBtn);
   }
 
   toggle(): void {

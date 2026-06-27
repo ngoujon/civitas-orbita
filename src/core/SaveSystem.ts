@@ -96,6 +96,9 @@ function migrateToV1(state: GameState): GameState {
   if (!state.ability) {
     state.ability = { cooldownRemaining: 0, buffRemaining: 0, buffMultiplier: 1 };
   }
+  if (!state.abilityCooldowns) {
+    state.abilityCooldowns = {};
+  }
   if (state.totalTicks === undefined) state.totalTicks = 0;
   if (!state.population?.workerSectorShare) {
     const count = state.population?.count ?? 1;

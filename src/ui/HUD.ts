@@ -21,6 +21,8 @@ import type { CharacterProfile } from '@/api';
 import type { Game } from '@/game/Game';
 import type { SoundSystem } from '@/audio/SoundSystem';
 import { ageAbilityIconSVG } from '@/ui/AbilityIcons';
+import { AGE_ABILITIES, AGE_ABILITY_ORDER } from '@/config/abilities';
+import type { AgeAbilityId } from '@/config/abilities';
 import { TechTreePanel } from '@/ui/TechTreePanel';
 import { WorkerAllocationPanel } from '@/ui/WorkerAllocationPanel';
 import { SettingsPanel } from '@/ui/SettingsPanel';
@@ -38,6 +40,7 @@ import { isNpcIslandActive } from '@/world/NpcIslandAbsorption';
 import { formatResourceAmount } from '@/economy/resourceFormat';
 import type { ResourceFlowSnapshot } from '@/economy/ResourceFlow';
 import { RESOURCES } from '@/config/resources';
+import { showConfirm } from '@/ui/ConfirmDialog';
 
 export class HUD {
   private root: HTMLElement;
@@ -58,11 +61,8 @@ export class HUD {
   private selectionPanel!: HTMLElement;
   private npcIslandPanel!: HTMLElement;
   private researchPanel!: HTMLElement;
-  private abilityPanel!: HTMLElement;
-  private abilityBtn!: HTMLButtonElement;
-  private abilityIconEl!: HTMLElement;
-  private abilityCd!: HTMLElement;
-  private lastAbilityAge: import('@/config/ages').AgeId | null = null;
+  private abilityBar!: HTMLElement;
+  private abilitySlots: Array<{ el: HTMLButtonElement; cdEl: HTMLElement }> = [];
   private tooltip!: HTMLElement;
   private resourceTooltipSource: ResourceId | null = null;
   private chatLog!: GameChatLog;
@@ -73,6 +73,9 @@ export class HUD {
   private techTree!: TechTreePanel;
   private workerPanel!: WorkerAllocationPanel;
   private settingsPanel!: SettingsPanel;
+  private demolishBar!: HTMLElement;
+  private demolishCount!: HTMLElement;
+  private demolishBtn!: HTMLButtonElement;
 
   constructor(
     private readonly game: Game,
@@ -120,7 +123,7 @@ export class HUD {
     this.popAllocBtn.innerHTML = workerIconSVG(18);
     this.popAllocBtn.onclick = () => this.workerPanel.toggle();
     const popWrap = el('span', 'hud-pop-wrap');
-    popWrap.append(iconLabel('Pop', this.popValue), this.popAllocBtn);
+    popWrap.append(iconLabel('Hab.', this.popValue), this.popAllocBtn);
     this.ageValue = el('span', 'hud-stat hud-age');
     this.civValue = el('span', 'hud-stat hud-civ');
     this.villageValue = el('span', 'hud-stat hud-village');
@@ -135,7 +138,12 @@ export class HUD {
     const buildTitle = el('div', 'hud-panel-title');
     buildTitle.textContent = 'Construction';
     this.buildList = el('div', 'hud-build-list');
-    this.buildPanel.append(buildTitle, this.buildList);
+    this.demolishBtn = document.createElement('button');
+    this.demolishBtn.className = 'hud-btn hud-demolish-btn';
+    this.demolishBtn.textContent = '🔨 Démolir';
+    this.demolishBtn.title = 'Mode démolition (cliquez sur les bâtiments à démolir)';
+    this.demolishBtn.onclick = () => this.game.setDemolishMode(!this.game.isDemolishMode);
+    this.buildPanel.append(buildTitle, this.demolishBtn, this.buildList);
 
     // Panneau selection (a droite).
     this.selectionPanel = el('div', 'hud-panel hud-selection');
@@ -147,15 +155,30 @@ export class HUD {
     // Panneau recherche (bas).
     this.researchPanel = el('div', 'hud-panel hud-research');
 
-    // Panneau capacite active (bas gauche) — icone procedurale, pas de texte.
-    this.abilityPanel = el('div', 'hud-panel hud-ability');
-    this.abilityBtn = document.createElement('button');
-    this.abilityBtn.className = 'hud-btn hud-ability-btn';
-    this.abilityBtn.onclick = () => this.game.activateAbility();
-    this.abilityIconEl = el('div', 'hud-ability-icon');
-    this.abilityBtn.append(this.abilityIconEl);
-    this.abilityCd = el('div', 'hud-ability-cd');
-    this.abilityPanel.append(this.abilityBtn, this.abilityCd);
+    // Barre d'abilities (bas, centre) — 9 slots numerotes 1-9.
+    this.abilityBar = el('div', 'hud-ability-bar');
+    this.abilitySlots = [];
+    for (let i = 0; i < AGE_ABILITY_ORDER.length; i++) {
+      const abilityId = AGE_ABILITY_ORDER[i] as AgeAbilityId;
+      const slot = document.createElement('button');
+      slot.type = 'button';
+      slot.className = 'hud-ability-slot locked';
+
+      const numEl = el('span', 'hud-ability-slot-num');
+      numEl.textContent = String(i + 1);
+
+      const iconEl = el('div', 'hud-ability-slot-icon');
+      iconEl.innerHTML = ageAbilityIconSVG(abilityId, 32);
+
+      const cdEl = el('div', 'hud-ability-slot-cd');
+      cdEl.style.display = 'none';
+
+      slot.append(numEl, iconEl, cdEl);
+      slot.onclick = () => this.game.activateAbilityById(abilityId);
+
+      this.abilitySlots.push({ el: slot, cdEl });
+      this.abilityBar.append(slot);
+    }
 
     // Boutons systeme (bas droite, colonne d icones).
     const sysBox = el('div', 'hud-system');
@@ -179,6 +202,26 @@ export class HUD {
       sysBox.append(this.muteBtn);
     }
 
+    // Bandeau de confirmation de démolition.
+    this.demolishBar = el('div', 'hud-demolish-bar');
+    this.demolishBar.style.display = 'none';
+    this.demolishCount = el('span', 'hud-demolish-count');
+    this.demolishCount.textContent = '0 bâtiment sélectionné';
+    const demolishConfirm = document.createElement('button');
+    demolishConfirm.className = 'hud-btn hud-demolish-confirm';
+    demolishConfirm.textContent = 'Confirmer la démolition';
+    demolishConfirm.onclick = () => this.game.confirmDemolish();
+    const demolishCancel = document.createElement('button');
+    demolishCancel.className = 'hud-btn';
+    demolishCancel.textContent = 'Annuler';
+    demolishCancel.onclick = () => this.game.setDemolishMode(false);
+    this.demolishBar.append(
+      Object.assign(el('span', 'hud-demolish-label'), { textContent: '🔨 Mode démolition —' }),
+      this.demolishCount,
+      demolishConfirm,
+      demolishCancel,
+    );
+
     // Infobulle de batiment (survol des cartes de construction).
     this.tooltip = el('div', 'hud-tooltip');
     this.tooltip.style.display = 'none';
@@ -194,8 +237,9 @@ export class HUD {
       this.selectionPanel,
       this.npcIslandPanel,
       this.researchPanel,
-      this.abilityPanel,
+      this.abilityBar,
       this.objectivesPanel,
+      this.demolishBar,
       sysBox,
       this.tooltip,
     );
@@ -203,6 +247,15 @@ export class HUD {
 
   private bindEvents(): void {
     this.game.bus.on('notify', ({ message, kind }) => this.chatLog.add(message, kind));
+    this.game.bus.on('demolish:mode', ({ active }) => {
+      this.demolishBar.style.display = active ? '' : 'none';
+      this.demolishBtn.classList.toggle('active', active);
+      if (!active) this.demolishCount.textContent = '0 bâtiment sélectionné';
+    });
+    this.game.bus.on('demolish:marked', ({ ids }) => {
+      const n = ids.length;
+      this.demolishCount.textContent = `${n} bâtiment${n > 1 ? 's' : ''} sélectionné${n > 1 ? 's' : ''}`;
+    });
     this.game.bus.on('age:advanced', () => {
       this.rebuildBuildList();
       this.techTree.refresh();
@@ -271,6 +324,10 @@ export class HUD {
           def.id === 'science'
             ? formatResourceAmount(state.resources[def.id])
             : `${Math.floor(state.resources[def.id])}/${Math.floor(cap)}`;
+        // Coloration selon flux net.
+        const flow = this.game.getResourceFlow(def.id);
+        entry.value.classList.toggle('positive', flow.netPerSec > 0.005);
+        entry.value.classList.toggle('negative', flow.netPerSec < -0.005);
       }
     }
 
@@ -290,7 +347,7 @@ export class HUD {
     this.speedValue.textContent = paused ? 'Pause' : `${spd}x`;
     this.speedValue.classList.toggle('hud-paused', paused);
 
-    this.refreshAbilityPanel();
+    this.refreshAbilityBar();
 
     this.refreshBuildAffordability();
     this.refreshResearchPanel();
@@ -541,11 +598,11 @@ export class HUD {
     if (def.id !== 'campfire') {
       const label = b.complete ? 'Demolir' : 'Annuler (rembourse)';
       actions.append(
-        button(label, () => {
+        button(label, async () => {
           const msg = b.complete
             ? `Demolir ${def.name} ? Cette action est irreversible.`
             : `Annuler la construction de ${def.name} ?`;
-          if (window.confirm(msg)) this.game.demolishSelected();
+          if (await showConfirm(msg)) this.game.demolishSelected();
         }),
       );
     }
@@ -640,37 +697,51 @@ export class HUD {
     this.researchPanel.append(title, req, bar, btn);
   }
 
-  // --- Panneau capacite active ----------------------------------------------
+  // --- Barre de competences actives ----------------------------------------
 
-  private refreshAbilityPanel(): void {
-    const status = this.game.getAbilityStatus();
+  private refreshAbilityBar(): void {
+    const state = this.game.getState();
+    const buffRemaining = state.ability.buffRemaining;
 
-    if (this.lastAbilityAge !== status.ageId) {
-      this.lastAbilityAge = status.ageId;
-      this.abilityIconEl.innerHTML = ageAbilityIconSVG(status.ageId, 52);
-    }
+    for (let i = 0; i < AGE_ABILITY_ORDER.length; i++) {
+      const abilityId = AGE_ABILITY_ORDER[i] as AgeAbilityId;
+      const slot = this.abilitySlots[i];
+      if (!slot) continue;
 
-    this.abilityBtn.disabled = !status.ready;
-    this.abilityBtn.title = status.locked
-      ? `${status.name} — verrouillee. Recherchez la maitrise de ${AGES[status.ageId].name} (T).`
-      : `${status.name} — ${status.description}`;
-    this.abilityBtn.setAttribute('aria-label', status.name);
-    this.abilityBtn.classList.toggle('ready', status.ready);
-    this.abilityBtn.classList.toggle('locked', status.locked);
-    this.abilityBtn.classList.toggle('active-buff', status.buffRemaining > 0);
+      const unlocked = !!state.unlockedAbilities[abilityId];
+      const cd = state.abilityCooldowns[abilityId] ?? 0;
+      const def = AGE_ABILITIES[abilityId];
+      const ready = unlocked && cd <= 0;
 
-    if (status.locked) {
-      this.abilityCd.textContent = '🔒';
-      this.abilityCd.className = 'hud-ability-cd locked';
-    } else if (status.buffRemaining > 0) {
-      this.abilityCd.textContent = `${Math.ceil(status.buffRemaining)}s`;
-      this.abilityCd.className = 'hud-ability-cd active';
-    } else if (status.ready) {
-      this.abilityCd.textContent = '●';
-      this.abilityCd.className = 'hud-ability-cd ready';
-    } else {
-      this.abilityCd.textContent = `${Math.ceil(status.remaining)}s`;
-      this.abilityCd.className = 'hud-ability-cd';
+      slot.el.classList.toggle('locked', !unlocked);
+      slot.el.classList.toggle('ready', ready);
+      slot.el.disabled = !ready;
+
+      // Detecter si le buff actif provient de cette ability.
+      const isActiveBuff =
+        buffRemaining > 0 &&
+        def.effect.kind === 'production_buff' &&
+        cd > 0;
+      slot.el.classList.toggle('active-buff', isActiveBuff);
+
+      slot.el.title = !unlocked
+        ? `${def.name} — Verrouillee. Recherchez la maitrise de ${AGES[abilityId].name} (T).`
+        : `${def.name} — ${def.description} (Refroidissement : ${def.cooldown}s)`;
+
+      // Overlay de recharge.
+      if (!unlocked) {
+        slot.cdEl.style.display = 'none';
+        slot.cdEl.textContent = '';
+      } else if (isActiveBuff) {
+        slot.cdEl.style.display = '';
+        slot.cdEl.textContent = `${Math.ceil(buffRemaining)}s`;
+      } else if (cd > 0) {
+        slot.cdEl.style.display = '';
+        slot.cdEl.textContent = `${Math.ceil(cd)}s`;
+      } else {
+        slot.cdEl.style.display = 'none';
+        slot.cdEl.textContent = '';
+      }
     }
   }
 

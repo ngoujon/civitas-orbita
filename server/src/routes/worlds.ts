@@ -67,6 +67,17 @@ router.put('/:id/state', requireAuth, (req: AuthRequest, res) => {
     return;
   }
   const db = getDb();
+  const world = db.prepare('SELECT host_user_id FROM worlds WHERE id = ?').get(worldId) as
+    | { host_user_id: number }
+    | undefined;
+  if (!world) {
+    res.status(404).json({ error: 'Monde introuvable.' });
+    return;
+  }
+  if (world.host_user_id !== req.userId) {
+    res.status(403).json({ error: 'Seul le créateur du monde peut modifier son état.' });
+    return;
+  }
   db.prepare('UPDATE worlds SET state_json = ?, updated_at = datetime(\'now\') WHERE id = ?').run(
     stateJson,
     worldId,

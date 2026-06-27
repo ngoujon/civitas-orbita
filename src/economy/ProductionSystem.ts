@@ -8,6 +8,7 @@
 
 import { BUILDINGS } from '@/config/buildings';
 import { getCivModifiers } from '@/config/civilizations';
+import { computeTechBonuses } from '@/config/technologies';
 import type { ResourceId } from '@/config/resources';
 import type { GameState } from '@/game/GameState';
 import type { WorldMap } from '@/world/WorldMap';
@@ -20,6 +21,7 @@ export class ProductionSystem {
     recomputeCapacities(state);
 
     const mods = getCivModifiers(state.civ);
+    const techBonuses = computeTechBonuses(state.researchedTechs);
     // Buff de capacite active : multiplie toute la production tant qu'il est actif.
     const buff = state.ability.buffRemaining > 0 ? state.ability.buffMultiplier : 1;
 
@@ -61,7 +63,8 @@ export class ProductionSystem {
         for (const [res, rate] of Object.entries(def.produces) as [ResourceId, number][]) {
           // Bonus passifs de civilisation (global + par ressource) et buff actif.
           const civBonus = mods.productionMultiplier * (mods.productionByResource[res] ?? 1) * buff;
-          credit(state, res, rate * effective * dt * civBonus * synergy);
+          const techMult = techBonuses[res] ?? 1;
+          credit(state, res, rate * effective * dt * civBonus * synergy * techMult);
         }
       }
     }

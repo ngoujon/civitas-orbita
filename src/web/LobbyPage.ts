@@ -8,6 +8,7 @@ import { serialize } from '@/core/SaveSystem';
 import type { CivId } from '@/config/civilizations';
 import { navigate } from './router';
 import { el } from './helpers';
+import { showError } from '@/ui/ConfirmDialog';
 
 const ACTIVE_WORLD_KEY = 'civitas-orbita:activeWorld';
 
@@ -72,7 +73,7 @@ export class LobbyPage {
     const actions = el('div', 'lobby-actions');
     const createBtn = document.createElement('button');
     createBtn.className = 'lobby-btn primary';
-    createBtn.textContent = 'Creer un monde (solo exporte)';
+    createBtn.textContent = 'Créer un monde multijoueur';
     createBtn.onclick = () => void this.createWorld();
 
     const soloBtn = document.createElement('button');
@@ -117,7 +118,7 @@ export class LobbyPage {
       setActiveWorldId(world.id);
       navigate('play');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Echec creation monde.');
+      showError(err instanceof Error ? err.message : 'Echec creation monde.');
     }
   }
 
@@ -127,7 +128,7 @@ export class LobbyPage {
       setActiveWorldId(id);
       navigate('play');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Echec connexion au monde.');
+      showError(err instanceof Error ? err.message : 'Echec connexion au monde.');
     }
   }
 }

@@ -33,5 +33,8 @@ export interface GameEvents {
   'objective:completed': { id: string; title: string };
   'random:event': { title: string; message: string };
   'notify': { message: string; kind: 'info' | 'warn' };
+  'demolish:mode': { active: boolean };
+  'demolish:marked': { ids: string[] };
+  'demolish:confirmed': { count: number };
   [key: string]: unknown;
 }

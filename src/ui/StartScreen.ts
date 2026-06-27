@@ -11,6 +11,7 @@ import type { CharacterProfile } from '@/api';
 import type { Game } from '@/game/Game';
 import type { GameSaveManager } from '@/game/GameSaveManager';
 import { el } from '@/web/helpers';
+import { showConfirm } from '@/ui/ConfirmDialog';
 
 export class StartScreen {
   private root: HTMLElement;
@@ -94,9 +95,7 @@ export class StartScreen {
 
   private async onNewEra(): Promise<void> {
     if (this.hasSave || this.sessionStarted) {
-      const ok = window.confirm(
-        'Fonder une nouvelle ere efface votre progression actuelle. Continuer ?',
-      );
+      const ok = await showConfirm('Fonder une nouvelle ere efface votre progression actuelle. Continuer ?');
       if (!ok) return;
       await this.saveManager.deleteSave();
     }

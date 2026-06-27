@@ -81,12 +81,18 @@ export const AGE_ABILITIES: Readonly<Record<AgeAbilityId, AgeAbilityDef>> = {
   },
   future: {
     id: 'future',
-    name: 'Override quantique',
+    name: 'Surcharge quantique',
     description: 'Triple la production pendant 25 s.',
     cooldown: 100,
     effect: { kind: 'production_buff', multiplier: 3, duration: 25 },
   },
 };
+
+/** Ordre canonique des competences (une par ere, du plus ancien au plus recent). */
+export const AGE_ABILITY_ORDER: readonly AgeAbilityId[] = [
+  'fire', 'stone', 'bronze', 'iron', 'medieval',
+  'renaissance', 'industrial', 'modern', 'future',
+];
 
 /** Competence active de l ere courante si debloquee. */
 export function activeAgeAbility(state: {

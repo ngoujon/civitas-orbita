@@ -46,6 +46,8 @@ interface HighlightState {
   valid: boolean;
 }
 
+const DEMOLISH_TINT = 0xff2222;
+
 const PROP_NAMES: PropName[] = ['tree', 'pine', 'rock', 'bush', 'flower', 'grass'];
 const POP_DURATION = 0.35; // secondes pour l'animation d'apparition
 
@@ -73,6 +75,7 @@ export class WorldRenderer {
   private propSprites: Sprite[] = [];
 
   private highlight: HighlightState = { coord: null, valid: true };
+  private demolishMarked: ReadonlySet<string> = new Set();
   private lastTerrainRings = -1;
   private lastPropSig = '';
   private lastPathSig = '';
@@ -111,6 +114,10 @@ export class WorldRenderer {
 
   setHighlight(coord: SectorCoord | null, valid: boolean): void {
     this.highlight = { coord, valid };
+  }
+
+  setDemolishMarked(ids: ReadonlySet<string>): void {
+    this.demolishMarked = ids;
   }
 
   setSelectedNpcIsland(id: string | null): void {
@@ -401,7 +408,9 @@ export class WorldRenderer {
       const pos = buildingDisplayPosition(geo, BUILDINGS[b.def].shoreRequired === true);
       sprite.position.set(pos.x, pos.y);
       sprite.zIndex = pos.y + 1; // legerement au-dessus du decor a y egal
-      sprite.alpha = b.complete ? 1 : 0.6;
+      const marked = this.demolishMarked.has(b.id);
+      sprite.alpha = marked ? 0.75 : (b.complete ? 1 : 0.6);
+      sprite.tint = marked ? DEMOLISH_TINT : 0xffffff;
 
       // Animation d'apparition (pop avec rebond).
       const age = this.elapsed - (this.spawnTime.get(b.id) ?? this.elapsed);
@@ -440,8 +449,22 @@ export class WorldRenderer {
     if (!ring) return;
 
     const color = this.highlight.valid ? PALETTE.highlight : PALETTE.invalid;
-    this.drawWedge(g, ring.innerRadius, ring.outerRadius, ring.startAngle(coord.index), ring.endAngle(coord.index), color, 0);
-    g.alpha = 0.3 + 0.15 * Math.sin(this.elapsed * 6);
+    const start = ring.startAngle(coord.index);
+    const end = ring.endAngle(coord.index);
+    const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * 5);
+
+    // Remplissage pulse (amplitude plus large qu'avant).
+    this.drawWedge(g, ring.innerRadius, ring.outerRadius, start, end, color, 0);
+    g.alpha = 0.3 + 0.25 * pulse;
+
+    // Contour lumineux supplementaire (halo blanc).
+    g.moveTo(Math.cos(start) * ring.innerRadius, Math.sin(start) * ring.innerRadius);
+    g.lineTo(Math.cos(start) * ring.outerRadius, Math.sin(start) * ring.outerRadius);
+    g.arc(0, 0, ring.outerRadius, start, end);
+    g.lineTo(Math.cos(end) * ring.innerRadius, Math.sin(end) * ring.innerRadius);
+    g.arc(0, 0, ring.innerRadius, end, start, true);
+    g.closePath();
+    g.stroke({ width: 2.5 + pulse * 1.5, color: 0xffffff, alpha: 0.28 + 0.32 * pulse });
   }
 
   // --- Effets animes (feu, lueur, fumee) -----------------------------------

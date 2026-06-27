@@ -143,6 +143,8 @@ export interface GameState {
   randomEvents: RandomEventsState;
   /** File de construction (types en attente). */
   constructionQueue: BuildingId[];
+  /** Recharges individuelles par competence (id → secondes restantes). */
+  abilityCooldowns: Partial<Record<AgeAbilityId, number>>;
 }
 
 /** Cree l'etat d'une nouvelle partie pour la civilisation choisie. */
@@ -202,6 +204,7 @@ export function createNewGame(
     objectives: { completed: {}, expeditionsCompleted: 0 },
     randomEvents: { cooldown: 60, active: null },
     constructionQueue: [],
+    abilityCooldowns: {},
   };
   seedInitialSeaExploration(state, ringOuterRadius(state.ringCount));
   syncUnlockedAbilitiesFromTechs(state);
@@ -227,6 +230,9 @@ export function ensureGameMetaState(state: GameState): void {
   }
   if (!state.constructionQueue) {
     state.constructionQueue = [];
+  }
+  if (!state.abilityCooldowns) {
+    state.abilityCooldowns = {};
   }
   for (const island of state.npcIslands) {
     if (!island.relation) island.relation = 'hostile';

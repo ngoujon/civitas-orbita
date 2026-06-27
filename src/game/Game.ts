@@ -46,8 +46,8 @@ import { TECHNOLOGIES } from '@/config/technologies';
 import type { TechId } from '@/config/technologies';
 import { syncUnlockedAbilitiesFromTechs } from '@/config/technologies';
 import {
-  activeAgeAbility,
   AGE_ABILITIES,
+  AGE_ABILITY_ORDER,
   abilityThemeColor,
   type AgeAbilityId,
 } from '@/config/abilities';
@@ -119,6 +119,8 @@ export class Game {
   private buildMode: BuildingId | null = null;
   private selectedId: string | null = null;
   private selectedNpcIslandId: string | null = null;
+  private demolishMode = false;
+  private readonly demolishQueue = new Set<string>();
   private pointerDown = false;
   private dragged = false;
   private lastPointer = { x: 0, y: 0 };
@@ -292,6 +294,12 @@ export class Game {
     const ab = this.state.ability;
     if (ab.cooldownRemaining > 0) ab.cooldownRemaining = Math.max(0, ab.cooldownRemaining - dt);
     if (ab.buffRemaining > 0) ab.buffRemaining = Math.max(0, ab.buffRemaining - dt);
+    // Recharges individuelles par competence.
+    const cds = this.state.abilityCooldowns;
+    for (const key of Object.keys(cds)) {
+      const v = cds[key as AgeAbilityId];
+      if (v && v > 0) cds[key as AgeAbilityId] = Math.max(0, v - dt);
+    }
   }
 
   private onRender(): void {
@@ -349,6 +357,16 @@ export class Game {
 
   private handleClick(screenX: number, screenY: number): void {
     const world = this.renderer.camera.screenToWorld(screenX, screenY);
+
+    if (this.demolishMode) {
+      const sector = this.map.sectorAtPoint(world.x, world.y);
+      if (sector) {
+        const found = this.buildingAt(sector);
+        if (found) this.toggleDemolishMark(found);
+      }
+      return;
+    }
+
     const npcIsland = this.expeditions.islandAt(this.state, world.x, world.y, NPC_ISLAND_RADIUS);
     if (npcIsland && isWorldPointExplored(this.state, npcIsland.x, npcIsland.y)) {
       this.selectNpcIsland(npcIsland.id);
@@ -389,6 +407,7 @@ export class Game {
         this.setBuildMode(null);
         this.selectBuilding(null);
         this.selectNpcIsland(null);
+        this.setDemolishMode(false);
         break;
       case ' ':
         e.preventDefault();
@@ -401,6 +420,14 @@ export class Game {
       case '-':
         this.renderer.camera.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1 / CAMERA.zoomStep);
         break;
+      case '1': case '2': case '3': case '4': case '5':
+      case '6': case '7': case '8': case '9': {
+        const idx = parseInt(e.key, 10) - 1;
+        const unlocked = this.getUnlockedAbilities();
+        const slotId = unlocked[idx];
+        if (slotId !== undefined) this.activateAbilityById(slotId);
+        break;
+      }
     }
   };
 
@@ -415,7 +442,7 @@ export class Game {
     if (this.keys.has('arrowleft') || this.keys.has('q')) dx -= speed;
     if (this.keys.has('arrowright') || this.keys.has('d')) dx += speed;
     if (this.keys.has('arrowup') || this.keys.has('z')) dy -= speed;
-    if (this.keys.has('arrowdown') || this.keys.has('s')) dy -= speed;
+    if (this.keys.has('arrowdown') || this.keys.has('s')) dy += speed;
     if (dx !== 0 || dy !== 0) this.renderer.camera.panByWorld(dx, dy);
   }
 
@@ -486,8 +513,68 @@ export class Game {
     if (building) {
       this.selectBuilding(null);
       this.selectNpcIsland(null);
+      this.setDemolishMode(false);
     }
     this.bus.emit('buildmode:changed', { building });
+  }
+
+  setDemolishMode(active: boolean): void {
+    if (this.demolishMode === active) return;
+    this.demolishMode = active;
+    if (active) {
+      this.setBuildMode(null);
+      this.selectBuilding(null);
+      this.selectNpcIsland(null);
+    } else {
+      this.demolishQueue.clear();
+      if (this.renderer) this.renderer.setDemolishMarked(new Set());
+    }
+    this.bus.emit('demolish:mode', { active });
+  }
+
+  get isDemolishMode(): boolean {
+    return this.demolishMode;
+  }
+
+  get demolishMarkedIds(): string[] {
+    return [...this.demolishQueue];
+  }
+
+  toggleDemolishMark(buildingId: string): void {
+    if (!this.demolishMode) return;
+    const b = this.state.buildings[buildingId];
+    if (!b || b.def === 'campfire') return;
+    if (this.demolishQueue.has(buildingId)) {
+      this.demolishQueue.delete(buildingId);
+    } else {
+      this.demolishQueue.add(buildingId);
+    }
+    this.renderer.setDemolishMarked(this.demolishQueue);
+    this.bus.emit('demolish:marked', { ids: [...this.demolishQueue] });
+  }
+
+  confirmDemolish(): void {
+    if (!this.demolishMode || this.demolishQueue.size === 0) return;
+    let count = 0;
+    for (const id of this.demolishQueue) {
+      const b = this.state.buildings[id];
+      if (!b) continue;
+      if (this.construction.cancel(this.state, id)) {
+        this.occupied.delete(sectorKey(b.sector));
+        this.bus.emit('building:cancelled', { id });
+        count++;
+      }
+    }
+    this.renderer.setDemolishMarked(new Set());
+    this.demolishQueue.clear();
+    this.setDemolishMode(false);
+    if (count > 0) {
+      this.bus.emit('demolish:confirmed', { count });
+      this.bus.emit('notify', {
+        message: `${count} bâtiment${count > 1 ? 's' : ''} démoli${count > 1 ? 's' : ''}.`,
+        kind: 'info',
+      });
+    }
   }
 
   get currentBuildMode(): BuildingId | null {
@@ -818,10 +905,14 @@ export class Game {
 
   // --- Capacite active de la civilisation -----------------------------------
 
-  /** Declenche la competence active de l ere courante si debloquee. */
+  /** Declenche la competence de l ere courante (raccourci vers activateAbilityById). */
   activateAbility(): void {
-    const ability = activeAgeAbility(this.state);
-    if (!ability) {
+    this.activateAbilityById(this.state.age);
+  }
+
+  /** Declenche une competence specifique par son id si debloquee et prete. */
+  activateAbilityById(abilityId: AgeAbilityId): void {
+    if (!this.state.unlockedAbilities[abilityId]) {
       this.bus.emit('notify', {
         message: 'Competence verrouillee — recherchez la maitrise de votre ere (T).',
         kind: 'warn',
@@ -829,12 +920,14 @@ export class Game {
       return;
     }
 
-    const ab = this.state.ability;
-    if (ab.cooldownRemaining > 0) {
+    const cd = this.state.abilityCooldowns[abilityId] ?? 0;
+    if (cd > 0) {
       this.bus.emit('notify', { message: 'Competence en recharge.', kind: 'warn' });
       return;
     }
 
+    const ability = AGE_ABILITIES[abilityId];
+    const ab = this.state.ability;
     const effect = ability.effect;
 
     switch (effect.kind) {
@@ -854,15 +947,28 @@ export class Game {
         break;
       }
       case 'production_buff': {
+        if (ab.buffRemaining > 0) {
+          this.bus.emit('notify', { message: 'Un buff de production est deja actif.', kind: 'warn' });
+          return;
+        }
         ab.buffRemaining = effect.duration;
         ab.buffMultiplier = effect.multiplier;
         break;
       }
     }
 
-    ab.cooldownRemaining = ability.cooldown;
+    this.state.abilityCooldowns[abilityId] = ability.cooldown;
+    // Conserver la compat avec l ancien champ pour les saves/getAbilityStatus.
+    if (abilityId === this.state.age) {
+      ab.cooldownRemaining = ability.cooldown;
+    }
     this.bus.emit('ability:used', { name: ability.name });
     this.bus.emit('notify', { message: `${ability.name} activee !`, kind: 'info' });
+  }
+
+  /** Liste des ids de competences debloquees, triee par ordre d ere. */
+  getUnlockedAbilities(): AgeAbilityId[] {
+    return AGE_ABILITY_ORDER.filter((id) => !!this.state.unlockedAbilities[id]);
   }
 
   /** Etat de la competence active de l ere courante pour l'UI. */
@@ -881,15 +987,16 @@ export class Game {
     const ageId = this.state.age;
     const def = AGE_ABILITIES[ageId];
     const unlocked = !!this.state.unlockedAbilities[ageId];
+    const cdRemaining = this.state.abilityCooldowns[ageId] ?? ab.cooldownRemaining;
 
     return {
       name: def.name,
       description: def.description,
       locked: !unlocked,
-      ready: unlocked && ab.cooldownRemaining <= 0,
+      ready: unlocked && cdRemaining <= 0,
       ageId,
       themeColor: abilityThemeColor(ageId),
-      remaining: ab.cooldownRemaining,
+      remaining: cdRemaining,
       total: def.cooldown,
       buffRemaining: ab.buffRemaining,
     };

@@ -7,11 +7,15 @@ import { AGE_ABILITIES } from '@/config/abilities';
 import { BUILDINGS } from '@/config/buildings';
 import {
   TECH_BRANCH_LABELS,
+  TECH_KIND_LABELS,
+  TECH_KIND_COLORS,
   TECHNOLOGIES,
   TECH_LIST,
   type TechDef,
   type TechId,
 } from '@/config/technologies';
+import { RESOURCES } from '@/config/resources';
+import type { ResourceId } from '@/config/resources';
 import type { Game } from '@/game/Game';
 import type { TechStatus } from '@/research/TechSystem';
 import { formatResourceAmount, roundToCent } from '@/economy/resourceFormat';
@@ -155,7 +159,12 @@ export class TechTreePanel {
     const tier = el('span', 'hud-tech-skill-tier');
     tier.textContent = String(def.tier + 1);
 
-    btn.append(glyph, tier);
+    const kindBadge = el('span', 'hud-tech-kind-badge');
+    kindBadge.textContent = TECH_KIND_LABELS[def.kind][0] ?? '?';
+    kindBadge.style.background = TECH_KIND_COLORS[def.kind];
+    kindBadge.title = TECH_KIND_LABELS[def.kind];
+
+    btn.append(glyph, tier, kindBadge);
 
     if (def.scienceCost > 0) {
       const cost = el('span', 'hud-tech-skill-cost');
@@ -191,8 +200,12 @@ export class TechTreePanel {
     }
 
     const status = this.game.techStatus(def.id);
+    const kindTag = el('span', 'hud-tech-detail-kind');
+    kindTag.textContent = TECH_KIND_LABELS[def.kind];
+    kindTag.style.background = TECH_KIND_COLORS[def.kind];
+
     const branch = el('div', 'hud-tech-detail-branch');
-    branch.textContent = TECH_BRANCH_LABELS[def.branch];
+    branch.append(kindTag, document.createTextNode(' ' + TECH_BRANCH_LABELS[def.branch]));
 
     const name = el('h3', 'hud-tech-detail-name');
     name.textContent = def.name;
@@ -221,6 +234,15 @@ export class TechTreePanel {
       const li = document.createElement('li');
       li.textContent = BUILDINGS[b].name;
       unlockList.append(li);
+    }
+    if (def.passiveBonus) {
+      for (const [res, mult] of Object.entries(def.passiveBonus) as [ResourceId, number][]) {
+        const li = document.createElement('li');
+        const pct = Math.round((mult - 1) * 100);
+        li.textContent = `+${pct} % ${RESOURCES[res].name}`;
+        li.className = 'passive-bonus-unlock';
+        unlockList.append(li);
+      }
     }
     if (unlockList.childElementCount === 0) {
       const li = document.createElement('li');

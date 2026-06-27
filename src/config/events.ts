@@ -40,7 +40,7 @@ export const RANDOM_EVENTS: RandomEventDef[] = [
   {
     id: 'caravan',
     title: 'Caravane marchande',
-    message: 'Des marchands echanges or contre vos surplus.',
+    message: 'Des marchands échangent de l\'or contre vos surplus.',
     duration: 0,
     weight: 4,
     minAge: 'bronze',
