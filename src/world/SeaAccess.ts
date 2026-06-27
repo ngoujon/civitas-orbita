@@ -80,22 +80,19 @@ export function resolvePortPlacementSector(
   occupied: ReadonlySet<string>,
   prepared: Readonly<Record<string, true>>,
 ): SectorCoord {
+  void prepared;
   if (coord.ring <= 0) return coord;
   if (isShoreSector(map, coord)) return coord;
 
-  if (coord.ring !== map.ringCount - 1) return coord;
-
+  // Snap vers le secteur de rivage (anneau N) angulairment aligné avec coord,
+  // quel que soit l'anneau cliqué.
   const inner = map.getRing(coord.ring);
   const outer = map.getRing(map.ringCount);
   if (!inner || !outer) return coord;
 
   for (const oi of inner.overlappingSectors(coord.index, outer)) {
     const candidate = { ring: map.ringCount, index: oi };
-    const key = sectorKey(candidate);
-    if (occupied.has(key)) continue;
-    // Les secteurs de rivage n'ont pas besoin d'être préparés pour le port.
-    void prepared;
-    return candidate;
+    if (!occupied.has(sectorKey(candidate))) return candidate;
   }
 
   return coord;

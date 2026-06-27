@@ -77,16 +77,11 @@ export class ConstructionSystem {
     if (!isUnlocked(buildingId, state)) return { ok: false, reason: 'locked' };
 
     if (def.shoreRequired) {
-      // Bâtiment de rivage (port) : pas de préparation requise, adjacence à l'anneau intérieur suffisante.
+      // Port : doit être sur le rivage (anneau N), colonne angulaire libre.
       if (!isShoreSector(map, coord)) return { ok: false, reason: 'not_shore' };
       if (def.reservesSeaAccess && !isSpokeClearForPort(map, occupied, coord)) {
         return { ok: false, reason: 'spoke_occupied' };
       }
-      const adjacent = map.neighbors(coord).some(n => {
-        const k = sectorKey(n);
-        return occupied.has(k) || !!state.preparedSectors[k];
-      });
-      if (!adjacent) return { ok: false, reason: 'placement_invalid' };
       if (!canAfford(state, this.effectiveCost(state, buildingId))) return { ok: false, reason: 'cannot_afford' };
       return { ok: true, id: '' };
     }
