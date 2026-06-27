@@ -538,8 +538,15 @@ export class HUD {
 
     const status = el('div', 'hud-sel-line');
     if (!b.complete) {
-      const pct = Math.min(100, Math.floor((b.buildProgress / def.buildTime) * 100));
-      status.textContent = `Chantier : ${pct}%`;
+      const pct = Math.min(1, b.buildProgress / def.buildTime);
+      const remaining = Math.ceil(def.buildTime - b.buildProgress);
+      const bar = el('div', 'hud-construction-bar');
+      const fill = el('div', 'hud-construction-fill');
+      fill.style.width = `${Math.round(pct * 100)}%`;
+      const label = el('div', 'hud-construction-label');
+      label.textContent = `Construction — ${Math.round(pct * 100)}% (${remaining}s)`;
+      bar.append(fill);
+      status.append(label, bar);
     } else if (upgradeable && b.level >= maxLevelFor(def)) {
       status.textContent = 'Niveau maximum';
     } else {

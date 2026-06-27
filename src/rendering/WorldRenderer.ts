@@ -476,6 +476,33 @@ export class WorldRenderer {
 
     drawSynergyPaths(g, state, map, t);
 
+    // Barres de progression des chantiers en cours.
+    for (const b of Object.values(state.buildings)) {
+      if (b.complete) continue;
+      const geo = map.geometry(b.sector);
+      if (!geo) continue;
+      const def = BUILDINGS[b.def];
+      const pct = def.buildTime > 0 ? Math.min(1, b.buildProgress / def.buildTime) : 1;
+      const pos = buildingDisplayPosition(geo, def.shoreRequired === true);
+      const BW = 38, BH = 5, BR = 2.5;
+      const bx = pos.x - BW / 2;
+      const by = pos.y + 8;
+      // Fond sombre
+      g.roundRect(bx - 1, by - 1, BW + 2, BH + 2, BR + 1).fill({ color: 0x000000, alpha: 0.55 });
+      // Remplissage progression (gradient vert → jaune selon avancement)
+      const fillColor = pct < 0.5 ? 0x4caf50 : pct < 0.85 ? 0xffc107 : 0x66bb6a;
+      if (pct > 0) {
+        g.roundRect(bx, by, BW * pct, BH, BR).fill({ color: fillColor, alpha: 0.92 });
+      }
+      // Hachures d'échafaudage (trait oblique animé)
+      const phase = (t * 0.6) % 1;
+      for (let i = -1; i <= 2; i++) {
+        const ox = ((i + phase) * 12) % (BW + 12) - 6;
+        g.moveTo(bx + ox, by).lineTo(bx + ox + 6, by + BH);
+        g.stroke({ width: 1.5, color: 0xffffff, alpha: 0.12 });
+      }
+    }
+
     for (const b of Object.values(state.buildings)) {
       if (!b.complete) continue;
       const geo = map.geometry(b.sector);

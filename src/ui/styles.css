@@ -612,6 +612,50 @@ body {
   transition: width 0.2s;
 }
 
+/* --- Barre de construction (panneau sélection) --- */
+.hud-construction-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.hud-construction-bar {
+  height: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+  position: relative;
+}
+
+.hud-construction-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #27ae60, #2ecc71);
+  border-radius: 4px;
+  transition: width 0.3s linear;
+  position: relative;
+  overflow: hidden;
+}
+
+.hud-construction-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 5px,
+    rgba(255,255,255,0.10) 5px,
+    rgba(255,255,255,0.10) 10px
+  );
+  animation: construction-stripe 0.8s linear infinite;
+}
+
+@keyframes construction-stripe {
+  from { background-position: 0 0; }
+  to   { background-position: 20px 0; }
+}
+
 .hud-research-btn {
   width: 100%;
 }
