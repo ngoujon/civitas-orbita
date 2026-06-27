@@ -772,63 +772,76 @@ body {
 
 .hud-tech-edge {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 2.5;
   stroke-linecap: round;
 }
 
 .hud-tech-edge.active {
-  stroke: rgba(106, 190, 48, 0.85);
+  stroke: rgba(106, 190, 48, 0.80);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 3px rgba(106,190,48,0.4));
 }
 
 .hud-tech-edge.ready {
-  stroke: rgba(255, 226, 74, 0.75);
+  stroke: rgba(255, 220, 50, 0.80);
+  stroke-width: 2.5;
 }
 
 .hud-tech-edge.partial {
-  stroke: rgba(106, 190, 48, 0.35);
+  stroke: rgba(106, 190, 48, 0.28);
+  stroke-dasharray: 8 4;
 }
 
 .hud-tech-edge.dim {
-  stroke: rgba(74, 64, 96, 0.55);
-  stroke-dasharray: 6 5;
+  stroke: rgba(80, 70, 110, 0.40);
+  stroke-dasharray: 5 6;
 }
 
 .hud-tech-node-wrap {
   position: absolute;
-  width: 72px;
+  width: 80px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  z-index: 1;
+}
+
+.hud-tech-node-wrap:hover {
+  z-index: 20;
 }
 
 .hud-tech-skill-node {
   position: relative;
-  width: 72px;
-  height: 72px;
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
-  border: 3px solid var(--panel-border);
-  background: radial-gradient(circle at 35% 30%, #3a3550, #1a1628);
+  border: 2.5px solid rgba(255,255,255,0.12);
+  background: radial-gradient(circle at 38% 32%, #2e2a44, #15111f);
   color: var(--text);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
   padding: 0;
-  transition: transform 0.1s, box-shadow 0.12s, border-color 0.12s;
+  transition: transform 0.15s cubic-bezier(.34,1.56,.64,1), box-shadow 0.15s, border-color 0.15s;
+  flex-shrink: 0;
 }
 
 .hud-tech-skill-node.branch-economy {
-  box-shadow: inset 0 0 0 1px rgba(255, 226, 74, 0.15);
+  border-color: rgba(255, 210, 50, 0.22);
+  background: radial-gradient(circle at 38% 32%, #2e2a18, #15110a);
 }
 
 .hud-tech-skill-node.branch-society {
-  box-shadow: inset 0 0 0 1px rgba(120, 180, 255, 0.18);
+  border-color: rgba(80, 160, 255, 0.22);
+  background: radial-gradient(circle at 38% 32%, #162840, #0a1220);
 }
 
 .hud-tech-skill-node.branch-mastery {
-  box-shadow: inset 0 0 0 1px rgba(180, 120, 255, 0.22);
-  background: radial-gradient(circle at 50% 35%, rgba(180, 120, 255, 0.12), rgba(0, 0, 0, 0.35));
+  border-color: rgba(160, 80, 255, 0.30);
+  background: radial-gradient(circle at 38% 32%, #221530, #0f0818);
 }
 
 .hud-tech-detail-list .ability-unlock {
@@ -837,80 +850,89 @@ body {
 }
 
 .hud-tech-skill-glyph {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 900;
   letter-spacing: -0.04em;
   line-height: 1;
+  pointer-events: none;
 }
 
 .hud-tech-skill-tier {
   position: absolute;
-  top: -4px;
-  left: -4px;
-  width: 18px;
-  height: 18px;
+  top: -5px;
+  left: -5px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: #2a2438;
-  border: 1px solid var(--panel-border);
+  background: #1a1428;
+  border: 1.5px solid rgba(255,255,255,0.15);
   font-size: 10px;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-dim);
+  pointer-events: none;
 }
 
 .hud-tech-skill-cost {
   position: absolute;
-  bottom: -2px;
-  right: -2px;
-  min-width: 22px;
+  bottom: -3px;
+  right: -3px;
+  min-width: 24px;
   height: 18px;
   padding: 0 4px;
   border-radius: 999px;
-  background: #1f1a2e;
-  border: 1px solid var(--accent);
+  background: #1a1428;
+  border: 1.5px solid var(--accent);
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 9px;
+  font-weight: 900;
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
 }
 
 .hud-tech-skill-label {
-  width: 92px;
+  width: 96px;
   text-align: center;
   font-size: 10px;
-  font-weight: 700;
-  line-height: 1.15;
-  color: var(--text-dim);
+  font-weight: 600;
+  line-height: 1.25;
+  color: rgba(200,190,240,0.75);
+  pointer-events: none;  /* KEY FIX : le label ne vole plus les événements des noeuds voisins */
+  user-select: none;
 }
 
 .hud-tech-skill-node.researched {
   border-color: var(--accent-2);
-  background: radial-gradient(circle at 35% 30%, #4a7a30, #243818);
-  box-shadow: 0 0 12px rgba(106, 190, 48, 0.35);
+  background: radial-gradient(circle at 38% 32%, #3a6022, #1c3010);
+  box-shadow: 0 0 14px rgba(106, 190, 48, 0.40), inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
 .hud-tech-skill-node.available {
   border-color: var(--accent);
-  animation: tech-pulse 1.6s ease-in-out infinite;
+  box-shadow: 0 0 10px rgba(255, 226, 74, 0.25);
+  animation: tech-pulse 1.8s ease-in-out infinite;
 }
 
 .hud-tech-skill-node.available:hover {
-  transform: scale(1.08);
-  box-shadow: 0 0 16px rgba(255, 226, 74, 0.45);
+  transform: scale(1.10);
+  box-shadow: 0 0 22px rgba(255, 226, 74, 0.55);
+  border-color: #ffe84a;
 }
 
 .hud-tech-skill-node.locked {
-  opacity: 0.42;
+  opacity: 0.38;
   cursor: default;
+  filter: grayscale(0.4);
 }
 
 .hud-tech-skill-node.selected {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
+  outline: 2.5px solid rgba(255,255,255,0.85);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(255,255,255,0.06);
 }
 
 @keyframes tech-pulse {

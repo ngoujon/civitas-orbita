@@ -17,11 +17,11 @@ export interface TechTreeLayout {
   readonly height: number;
 }
 
-const ROW_HEIGHT = 112;
-const COL_WIDTH = 108;
-const NODE_RADIUS = 36;
-const PADDING_X = 56;
-const PADDING_Y = 40;
+const ROW_HEIGHT = 128;
+const COL_WIDTH = 130;
+const NODE_RADIUS = 40;
+const PADDING_X = 64;
+const PADDING_Y = 48;
 
 /** Abreviation affichee dans le cercle du noeud. */
 export const TECH_NODE_GLYPH: Readonly<Record<TechId, string>> = {
@@ -95,15 +95,15 @@ const TECH_GRID: Readonly<Record<TechId, { col: number; tier: number }>> = {
   mastery_industrial: { col: 4, tier: 6 },
   mastery_modern: { col: 4, tier: 7 },
   mastery_future: { col: 4, tier: 8 },
-  // Passifs (col 5) et bâtiments supplémentaires (col 6)
-  irrigation: { col: 5, tier: 0 },
-  sawmill_tech: { col: 5, tier: 1 },
-  geology: { col: 5, tier: 2 },
-  metallurgy: { col: 5, tier: 3 },
-  mass_production: { col: 5, tier: 5 },
-  banking_tech: { col: 6, tier: 2 },
-  guilds: { col: 6, tier: 3 },
-  printing_press: { col: 6, tier: 4 },
+  // Passifs et bâtiments : placés près de leurs prérequis (sans conflit)
+  irrigation:     { col: 1, tier: 1 }, // juste au-dessus agriculture(1,0)
+  sawmill_tech:   { col: 5, tier: 0 }, // même rangée que forestry(0,0)
+  geology:        { col: 5, tier: 1 }, // même rangée que stonework(0,1)
+  banking_tech:   { col: 5, tier: 2 }, // même rangée que trade_routes(2,2)
+  guilds:         { col: 5, tier: 3 }, // même rangée que mining(1,3)
+  metallurgy:     { col: 6, tier: 3 }, // même rangée que mining(1,3)
+  printing_press: { col: 5, tier: 4 }, // même rangée que academia(2,4)
+  mass_production:{ col: 6, tier: 4 }, // même rangée que industrialization(1,4)
 };
 
 export function getTechTreeLayout(): TechTreeLayout {
