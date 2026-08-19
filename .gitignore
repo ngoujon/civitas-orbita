@@ -6,3 +6,6 @@ dist
 .vite
 coverage
 data/
+
+# Remap ports Docker local (multi-projet) — jamais commité
+docker-compose.override.yml
